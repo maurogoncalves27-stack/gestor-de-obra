@@ -81,8 +81,8 @@
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     try {
-      const res = await fetch(`${url}/auth/v1/health`, { signal: controller.signal });
-      return res.ok;
+      await fetch(`${url}/auth/v1/health`, { signal: controller.signal });
+      return true;
     } catch (_) {
       return false;
     } finally {
