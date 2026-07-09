@@ -1,5 +1,6 @@
 # Deploy Netlify — gestor-de-obra (site estático, sem build)
 [build]
+  command = ""
   publish = "."
 
 [[headers]]
