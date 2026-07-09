@@ -1,7 +1,5 @@
-// Supabase — use a chave legacy "anon" (eyJ...) OU publishable + URL exata
-// Settings → API Keys → Legacy API Keys → anon public
-// Project Overview → Copy URL (ao lado da URL do projeto)
+// Supabase — chave legacy anon (URL detectada automaticamente pelo auth.js)
 window.OBRA_CONFIG = {
-  supabaseUrl: "",
-  supabaseAnonKey: "sb_publishable_Nehfv9gQV4-wGGUeTmgdXA_orUA2Jrm",
+  supabaseUrl: "https://htdgyiaxhclgjqqfwyyi.supabase.co",
+  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0ZGd5aWF4aGNsZ2pxcWZ3eXlpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MDI3ODksImV4cCI6MjA5OTE3ODc4OX0.iUU_xJBlifvQ2WynAicAOVJ--zwv1ZtCh3PZzlOHZVg",
 };
