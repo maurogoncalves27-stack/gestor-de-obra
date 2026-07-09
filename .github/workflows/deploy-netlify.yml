@@ -12,6 +12,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: obra
+    env:
+      NETLIFY_SITE_ID: 6a97a4a7-410a-4660-a4b8-7c2620e31cd5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,5 +32,5 @@ jobs:
           overwrites-pull-request-comment: true
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NETLIFY_SITE_ID: ${{ env.NETLIFY_SITE_ID }}
         timeout-minutes: 5
