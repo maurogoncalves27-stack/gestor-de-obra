@@ -1,4 +1,4 @@
-# Deploy Netlify — arraste a pasta "Obra 103" ou conecte ao GitHub
+# Deploy Netlify — gestor-de-obra (site estático, sem build)
 [build]
   publish = "."
 
