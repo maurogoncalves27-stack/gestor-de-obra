@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Cronograma físico-financeiro e controle de gastos da obra" />
+    <meta name="theme-color" content="#d97706" />
+    <title>Obra 103 — Cronograma & Controle de Gastos</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-icon">🏗️</span>
+          <div>
+            <p class="brand-eyebrow">Gestão de Obra</p>
+            <h1 id="sidebar-title">Obra 103</h1>
+          </div>
+        </div>
+        <nav class="nav" aria-label="Navegação principal">
+          <button class="nav-btn active" data-view="dashboard" type="button">
+            <span class="nav-icon">📊</span> Dashboard
+          </button>
+          <button class="nav-btn" data-view="etapas" type="button">
+            <span class="nav-icon">📋</span> Etapas
+          </button>
+          <button class="nav-btn" data-view="itens" type="button">
+            <span class="nav-icon">📦</span> Itens & Compras
+          </button>
+          <button class="nav-btn" data-view="dependencias" type="button">
+            <span class="nav-icon">🔗</span> Dependências
+          </button>
+          <button class="nav-btn" data-view="gastos" type="button">
+            <span class="nav-icon">💰</span> Gastos
+          </button>
+          <button class="nav-btn" data-view="cronograma" type="button">
+            <span class="nav-icon">📅</span> Cronograma
+          </button>
+          <button class="nav-btn" data-view="relatorios" type="button">
+            <span class="nav-icon">📈</span> Relatórios
+          </button>
+        </nav>
+        <div class="sidebar-footer">
+          <button class="btn btn-ghost btn-block" id="btn-tutorial" type="button">📖 Ver tutorial</button>
+          <button class="btn btn-ghost btn-block" id="btn-export" type="button">Exportar backup</button>
+          <label class="btn btn-ghost btn-block file-label">
+            Importar backup
+            <input accept=".json" hidden id="import-file" type="file" />
+          </label>
+        </div>
+      </aside>
+
+      <div class="main-wrap">
+        <header class="topbar">
+          <button aria-label="Abrir menu" class="menu-toggle" id="menu-toggle" type="button">☰</button>
+          <div class="topbar-info">
+            <h2 id="view-title">Dashboard</h2>
+            <p id="view-subtitle">Visão geral da obra</p>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn btn-scan-top" id="btn-scan-top" type="button">📷 Escanear NF</button>
+            <button class="btn btn-ghost" id="btn-projeto" type="button">⚙️ Projeto</button>
+            <span class="save-indicator" id="save-indicator">Salvo</span>
+          </div>
+        </header>
+
+        <main class="content">
+          <!-- DASHBOARD -->
+          <section class="view active" id="view-dashboard">
+            <div class="kpi-grid">
+              <article class="kpi-card">
+                <p class="kpi-label">Orçamento previsto</p>
+                <p class="kpi-value" id="kpi-orcamento">R$ 0,00</p>
+              </article>
+              <article class="kpi-card">
+                <p class="kpi-label">Gasto realizado</p>
+                <p class="kpi-value kpi-danger" id="kpi-gasto">R$ 0,00</p>
+              </article>
+              <article class="kpi-card">
+                <p class="kpi-label">Saldo disponível</p>
+                <p class="kpi-value kpi-success" id="kpi-saldo">R$ 0,00</p>
+              </article>
+              <article class="kpi-card">
+                <p class="kpi-label">Avanço físico</p>
+                <p class="kpi-value" id="kpi-avanco">0%</p>
+                <div class="progress-bar"><div class="progress-fill" id="kpi-avanco-bar"></div></div>
+              </article>
+              <article class="kpi-card">
+                <p class="kpi-label">Execução financeira</p>
+                <p class="kpi-value" id="kpi-financeiro">0%</p>
+                <div class="progress-bar"><div class="progress-fill progress-fill-alt" id="kpi-financeiro-bar"></div></div>
+              </article>
+              <article class="kpi-card">
+                <p class="kpi-label">Prazo da obra</p>
+                <p class="kpi-value kpi-sm" id="kpi-prazo">—</p>
+              </article>
+            </div>
+
+            <div class="dashboard-grid">
+              <article class="panel">
+                <div class="panel-header">
+                  <h3>Etapas em andamento</h3>
+                </div>
+                <div class="panel-body" id="dashboard-etapas"></div>
+              </article>
+              <article class="panel">
+                <div class="panel-header">
+                  <h3>Alertas</h3>
+                </div>
+                <div class="panel-body" id="dashboard-alertas"></div>
+              </article>
+              <article class="panel panel-wide">
+                <div class="panel-header">
+                  <h3>Últimos gastos</h3>
+                  <button class="btn btn-sm" data-goto="gastos" type="button">Ver todos</button>
+                </div>
+                <div class="panel-body table-wrap" id="dashboard-gastos"></div>
+              </article>
+            </div>
+          </section>
+
+          <!-- ETAPAS -->
+          <section class="view" id="view-etapas">
+            <div class="view-toolbar">
+              <p class="toolbar-hint">Defina as fases da obra, prazos e orçamento previsto de cada etapa.</p>
+              <button class="btn" id="btn-add-etapa" type="button">+ Nova etapa</button>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table" id="table-etapas">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Etapa</th>
+                    <th>Início</th>
+                    <th>Fim previsto</th>
+                    <th>Fim real</th>
+                    <th>Orçamento</th>
+                    <th>Gasto</th>
+                    <th>Desvio</th>
+                    <th>% físico</th>
+                    <th>Dependências</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+                <tfoot>
+                  <tr class="totals-row">
+                    <td colspan="5"><strong>Totais</strong></td>
+                    <td id="etapas-total-orcamento"></td>
+                    <td id="etapas-total-gasto"></td>
+                    <td id="etapas-total-desvio"></td>
+                    <td id="etapas-total-avanco"></td>
+                    <td></td>
+                    <td colspan="2"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </section>
+
+          <!-- ITENS & COMPRAS -->
+          <section class="view" id="view-itens">
+            <div class="view-toolbar">
+              <p class="toolbar-hint">Materiais, equipamentos, utensílios e contratações — compare valor previsto (orçado) com consolidado (gastos pagos).</p>
+              <button class="btn" id="btn-add-item" type="button">+ Novo item</button>
+            </div>
+            <div class="itens-resumo" id="itens-resumo"></div>
+            <div class="table-wrap">
+              <table class="data-table" id="table-itens">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Categoria</th>
+                    <th>Etapa vinculada</th>
+                    <th>Previsto</th>
+                    <th>Consolidado</th>
+                    <th>Desvio</th>
+                    <th>Pagamento</th>
+                    <th>Status</th>
+                    <th>Fornecedor</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+                <tfoot>
+                  <tr class="totals-row">
+                    <td colspan="3"><strong>Totais</strong></td>
+                    <td id="itens-total-previsto"></td>
+                    <td id="itens-total-consolidado"></td>
+                    <td id="itens-total-desvio"></td>
+                    <td colspan="4"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </section>
+
+          <!-- DEPENDÊNCIAS -->
+          <section class="view" id="view-dependencias">
+            <div class="view-toolbar">
+              <p class="toolbar-hint">Cadeia de pré-requisitos — etapas só podem iniciar quando dependências estiverem concluídas.</p>
+            </div>
+            <div class="dep-grid" id="dep-cards"></div>
+          </section>
+
+          <!-- GASTOS -->
+          <section class="view" id="view-gastos">
+            <div class="view-toolbar">
+              <div class="filters">
+                <select id="filter-etapa">
+                  <option value="">Todas as etapas</option>
+                </select>
+                <select id="filter-tipo">
+                  <option value="">Todos os tipos</option>
+                  <option value="material_obra">Materiais de obra</option>
+                  <option value="equipamento">Equipamentos</option>
+                  <option value="utensilio">Utensílios</option>
+                  <option value="contratacao">Contratações</option>
+                  <option value="mao_de_obra">Mão de obra</option>
+                </select>
+                <input id="filter-busca" placeholder="Buscar fornecedor ou descrição…" type="search" />
+              </div>
+              <button class="btn" id="btn-add-gasto" type="button">+ Novo gasto</button>
+              <button class="btn btn-scan" id="btn-scan-gastos" type="button">📷 Escanear comprovante</button>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table" id="table-gastos">
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>NF</th>
+                    <th>Fornecedor</th>
+                    <th>Descrição</th>
+                    <th>Etapa</th>
+                    <th>Tipo</th>
+                    <th>Valor</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+                <tfoot>
+                  <tr class="totals-row">
+                    <td colspan="6"><strong>Total filtrado</strong></td>
+                    <td id="gastos-total"></td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </section>
+
+          <!-- CRONOGRAMA -->
+          <section class="view" id="view-cronograma">
+            <div class="view-toolbar">
+              <p class="toolbar-hint">Cronograma físico — barras azuis = previsto, verdes = realizado.</p>
+              <div class="legend">
+                <span class="legend-item"><span class="dot dot-prev"></span> Previsto</span>
+                <span class="legend-item"><span class="dot dot-real"></span> Realizado</span>
+                <span class="legend-item"><span class="dot dot-atraso"></span> Atraso</span>
+              </div>
+            </div>
+            <div class="gantt-wrap">
+              <div class="gantt" id="gantt"></div>
+            </div>
+          </section>
+
+          <!-- RELATÓRIOS -->
+          <section class="view" id="view-relatorios">
+            <div class="charts-grid">
+              <article class="panel">
+                <div class="panel-header"><h3>Previsto × Realizado por etapa</h3></div>
+                <div class="panel-body chart-body"><canvas id="chart-etapas"></canvas></div>
+              </article>
+              <article class="panel">
+                <div class="panel-header"><h3>Gastos por tipo</h3></div>
+                <div class="panel-body chart-body"><canvas id="chart-tipos"></canvas></div>
+              </article>
+              <article class="panel panel-wide">
+                <div class="panel-header"><h3>Fluxo de caixa mensal</h3></div>
+                <div class="panel-body chart-body"><canvas id="chart-mensal"></canvas></div>
+              </article>
+              <article class="panel panel-wide">
+                <div class="panel-header"><h3>Curva físico-financeira</h3></div>
+                <div class="panel-body chart-body"><canvas id="chart-curva"></canvas></div>
+              </article>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <!-- Modal genérico -->
+    <dialog class="modal" id="modal">
+      <form class="modal-form" id="modal-form" method="dialog">
+        <div class="modal-header">
+          <h3 id="modal-title">Título</h3>
+          <button aria-label="Fechar" class="btn-icon" id="modal-close" type="button">✕</button>
+        </div>
+        <div class="modal-body" id="modal-body"></div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="modal-cancel" type="button">Cancelar</button>
+          <button class="btn" id="modal-save" type="submit">Salvar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Modal projeto -->
+    <dialog class="modal" id="modal-projeto">
+      <form class="modal-form" id="form-projeto" method="dialog">
+        <div class="modal-header">
+          <h3>Configurações do projeto</h3>
+          <button aria-label="Fechar" class="btn-icon" id="modal-projeto-close" type="button">✕</button>
+        </div>
+        <div class="modal-body">
+          <label class="field">
+            <span>Nome da obra</span>
+            <input id="proj-nome" required type="text" />
+          </label>
+          <label class="field">
+            <span>Endereço</span>
+            <input id="proj-endereco" type="text" />
+          </label>
+          <label class="field">
+            <span>Data de início</span>
+            <input id="proj-inicio" type="date" />
+          </label>
+          <label class="field">
+            <span>Data prevista de conclusão</span>
+            <input id="proj-fim" type="date" />
+          </label>
+          <label class="field">
+            <span>Orçamento global (opcional)</span>
+            <input id="proj-orcamento" min="0" step="0.01" type="number" />
+          </label>
+          <label class="field">
+            <span>Responsável técnico</span>
+            <input id="proj-responsavel" type="text" />
+          </label>
+          <label class="field">
+            <span>Observações</span>
+            <textarea id="proj-obs" rows="3"></textarea>
+          </label>
+          <hr class="field-divider" />
+          <label class="field">
+            <span>Chave API Google Gemini (para ler comprovantes)</span>
+            <input autocomplete="off" id="proj-gemini-key" placeholder="AIza..." type="password" />
+            <p class="field-hint">
+              Grátis em <a href="https://aistudio.google.com/apikey" rel="noopener" target="_blank">aistudio.google.com/apikey</a>.
+              Fica salva só neste navegador.
+            </p>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="modal-projeto-cancel" type="button">Cancelar</button>
+          <button class="btn" type="submit">Salvar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Escanear comprovante -->
+    <dialog class="modal modal-scan" id="modal-scan">
+      <div class="modal-form">
+        <div class="modal-header">
+          <h3>Escanear comprovante</h3>
+          <button aria-label="Fechar" class="btn-icon" id="modal-scan-close" type="button">✕</button>
+        </div>
+        <div class="modal-body" id="scan-body">
+          <div class="scan-dropzone" id="scan-dropzone">
+            <input accept="image/*" capture="environment" hidden id="scan-file" type="file" />
+            <p class="scan-dropzone-icon">📷</p>
+            <p><strong>Toque para fotografar</strong> ou arraste a imagem aqui</p>
+            <p class="field-hint">NF, recibo, nota de serviço, comprovante PIX…</p>
+            <button class="btn btn-sm" id="scan-browse" type="button">Escolher arquivo</button>
+          </div>
+          <div class="hidden" id="scan-preview-wrap">
+            <img alt="Comprovante" class="scan-preview" id="scan-preview" />
+            <button class="btn btn-ghost btn-sm" id="scan-retake" type="button">Trocar imagem</button>
+          </div>
+          <div class="hidden scan-loading" id="scan-loading">
+            <div class="scan-spinner"></div>
+            <p>IA analisando comprovante…</p>
+          </div>
+          <div class="hidden" id="scan-result"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="modal-scan-cancel" type="button">Cancelar</button>
+          <button class="btn hidden" disabled id="scan-analyze" type="button">Analisar com IA</button>
+        </div>
+      </div>
+    </dialog>
+
+    <button aria-label="Escanear comprovante" class="fab-scan" id="fab-scan" type="button">📷</button>
+
+    <!-- Tutorial primeiro acesso -->
+    <dialog class="modal modal-tutorial" id="modal-tutorial">
+      <div class="tutorial-wrap">
+        <div class="tutorial-header">
+          <p class="tutorial-eyebrow">Primeiro acesso</p>
+          <h3 id="tutorial-title">Bem-vindo à Obra 103</h3>
+          <div class="tutorial-progress" id="tutorial-progress" aria-hidden="true"></div>
+        </div>
+        <div class="tutorial-body" id="tutorial-body"></div>
+        <div class="tutorial-footer">
+          <button class="btn btn-ghost" id="tutorial-skip" type="button">Pular</button>
+          <div class="tutorial-nav">
+            <button class="btn btn-ghost" disabled id="tutorial-prev" type="button">Anterior</button>
+            <button class="btn" id="tutorial-next" type="button">Próximo</button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+  </body>
+</html>
