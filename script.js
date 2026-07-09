@@ -39,7 +39,7 @@ const TIPO_MIGRATE = {
   outro: "material_obra",
 };
 
-let state = loadState();
+let state = defaultState();
 let charts = {};
 let saveTimer = null;
 
@@ -71,7 +71,7 @@ const TUTORIAL_STEPS = [
     icon: "🏗️",
     title: "Bem-vindo à Obra 103",
     html: `<p>Este sistema ajuda você a controlar <strong>cronograma</strong>, <strong>gastos</strong> e <strong>dependências</strong> da sua obra em um só lugar.</p>
-      <p>Seus dados ficam salvos automaticamente no navegador. Para começar do zero, use o tutorial ou exporte um backup antes de limpar.</p>
+      <p>Seus dados são salvos automaticamente. Exporte backup periodicamente pelo menu lateral.</p>
       <div class="tutorial-tip">💡 Siga os passos nesta ordem para montar sua obra corretamente.</div>`,
   },
   {
@@ -189,11 +189,27 @@ function loadState() {
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   flashSave();
+  if (window.ObraAuth?.isCloud()) {
+    ObraAuth.scheduleCloudSave(state);
+  }
 }
 
 function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveState, 400);
+}
+
+async function saveStateNow() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  flashSave();
+  if (window.ObraAuth?.isCloud()) {
+    try {
+      await ObraAuth.saveNow(state);
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao salvar na nuvem. Dados mantidos neste aparelho.");
+    }
+  }
 }
 
 function flashSave() {
@@ -1983,9 +1999,10 @@ function initBackup() {
     reader.onload = () => {
       try {
         state = migrateState(JSON.parse(reader.result));
-        saveState();
-        render();
-        alert("Backup importado com sucesso!");
+        saveStateNow().then(() => {
+          render();
+          alert("Backup importado com sucesso!");
+        });
       } catch {
         alert("Arquivo inválido.");
       }
@@ -2064,9 +2081,14 @@ function showTutorial() {
   document.getElementById("modal-tutorial").showModal();
 }
 
+function getTutorialKey() {
+  const uid = window.ObraAuth?.getUser?.()?.id;
+  return uid ? `${TUTORIAL_KEY}-${uid}` : TUTORIAL_KEY;
+}
+
 function closeTutorial() {
   document.getElementById("modal-tutorial").close();
-  localStorage.setItem(TUTORIAL_KEY, "1");
+  localStorage.setItem(getTutorialKey(), "1");
 }
 
 function initTutorial() {
@@ -2089,15 +2111,23 @@ function initTutorial() {
 }
 
 function maybeShowFirstAccessTutorial() {
-  if (!localStorage.getItem(TUTORIAL_KEY)) {
-    state = defaultState();
-    saveState();
+  if (!localStorage.getItem(getTutorialKey())) {
+    if (!window.ObraAuth?.isCloud?.()) {
+      state = defaultState();
+      saveState();
+    }
     render();
     setTimeout(showTutorial, 500);
   }
 }
 
-function init() {
+function startApp(initialState) {
+  state = migrateState(initialState ?? loadState());
+
+  if (window.ObraAuth?.isCloud?.()) {
+    document.getElementById("btn-logout")?.classList.remove("hidden");
+  }
+
   initNav();
   initProjeto();
   initBackup();
@@ -2124,6 +2154,16 @@ function init() {
 
   render();
   maybeShowFirstAccessTutorial();
+}
+
+function init() {
+  ObraAuth.init(({ mode, state: cloudState }) => {
+    if (mode === "cloud") {
+      startApp(cloudState ?? defaultState());
+      return;
+    }
+    startApp(loadState());
+  });
 }
 
 document.addEventListener("DOMContentLoaded", init);

@@ -9,11 +9,32 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>Obra 103 — Cronograma & Controle de Gastos</title>
     <link rel="stylesheet" href="/style.css" />
+    <script src="/config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+    <script src="/auth.js" defer></script>
     <script src="/script.js" defer></script>
   </head>
   <body>
-    <div class="app">
+    <div class="auth-loading" id="auth-loading">
+      <div class="auth-spinner"></div>
+      <p>Carregando…</p>
+    </div>
+
+    <div class="login-screen hidden" id="login-screen">
+      <div class="login-card">
+        <p class="login-eyebrow">Gestão de Obra</p>
+        <h1 class="login-title">🏗️ Gestor de Obra</h1>
+        <p class="login-text">Entre com Google para sincronizar cronograma e gastos entre celular e computador.</p>
+        <button class="btn btn-google" id="btn-google-login" type="button">
+          <span class="btn-google-icon" aria-hidden="true">G</span>
+          Entrar com Google
+        </button>
+        <p class="login-hint">Seus dados ficam protegidos na sua conta.</p>
+      </div>
+    </div>
+
+    <div class="app hidden" id="app-root">
       <aside class="sidebar">
         <div class="brand">
           <span class="brand-icon">🏗️</span>
@@ -46,6 +67,8 @@
           </button>
         </nav>
         <div class="sidebar-footer">
+          <div class="user-chip hidden" id="user-chip"></div>
+          <button class="btn btn-ghost btn-block hidden" id="btn-logout" type="button">Sair da conta</button>
           <button class="btn btn-ghost btn-block" id="btn-tutorial" type="button">📖 Ver tutorial</button>
           <button class="btn btn-ghost btn-block" id="btn-export" type="button">Exportar backup</button>
           <label class="btn btn-ghost btn-block file-label">
