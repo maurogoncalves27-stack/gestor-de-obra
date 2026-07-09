@@ -41,6 +41,19 @@
     return Boolean(url && key);
   }
 
+  function getOAuthRedirectUrl() {
+    const configured = (getRawConfig().siteUrl || "").trim().replace(/\/$/, "");
+    const isLocal =
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+
+    if (configured && !isLocal) {
+      return configured + "/";
+    }
+
+    return window.location.origin + window.location.pathname;
+  }
+
   function $(id) {
     return document.getElementById(id);
   }
@@ -219,7 +232,7 @@
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: window.location.origin + window.location.pathname,
+          redirectTo: getOAuthRedirectUrl(),
         },
       });
       if (error) throw error;

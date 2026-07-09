@@ -175,7 +175,81 @@ function migrateState(data) {
     if (!g.comprovante) g.comprovante = "";
   });
 
+  applyDataPatches(data);
+
   return data;
+}
+
+function applyDataPatches(data) {
+  if (!data.meta) data.meta = {};
+  if ((data.meta.patchVersion || 0) >= 1) return;
+
+  const exists = (data.itens || []).some(
+    (i) =>
+      (i.fornecedor || "").toLowerCase().includes("cortopassi") ||
+      (i.nome || "").toLowerCase().includes("cortopassi")
+  );
+
+  if (!exists) {
+    const itemId = uid();
+    const entradaParcelaId = uid();
+    const parcelaId = uid();
+    const gastoId = uid();
+
+    data.itens.push({
+      id: itemId,
+      nome: "Arquiteta Cortopassi",
+      categoria: "contratacao",
+      status: "comprado",
+      valorPrevisto: 5400,
+      fornecedor: "Cortopassi",
+      etapaId: "",
+      observacoes: "Contratação de projeto arquitetônico. Entrada paga em 08/07/2026. Saldo de R$ 2.400,00 vence em 05/08/2026.",
+      parcelamento: {
+        ativo: true,
+        entrada: 3000,
+        qtdParcelas: 1,
+        dataEntrada: "2026-07-08",
+        intervaloDias: 28,
+        parcelas: [
+          {
+            id: entradaParcelaId,
+            tipo: "entrada",
+            numero: 0,
+            valor: 3000,
+            vencimento: "2026-07-08",
+            paga: true,
+            gastoId,
+          },
+          {
+            id: parcelaId,
+            tipo: "parcela",
+            numero: 1,
+            valor: 2400,
+            vencimento: "2026-08-05",
+            paga: false,
+            gastoId: "",
+          },
+        ],
+      },
+    });
+
+    data.gastos.push({
+      id: gastoId,
+      data: "2026-07-08",
+      valor: 3000,
+      nf: "",
+      fornecedor: "Cortopassi",
+      descricao: "Arquiteta Cortopassi — Entrada",
+      etapaId: "",
+      tipo: "contratacao",
+      itemId,
+      parcelaId: entradaParcelaId,
+      comprovante: "",
+    });
+  }
+
+  data.meta.patchVersion = 1;
 }
 
 function loadState() {
@@ -2122,7 +2196,12 @@ function maybeShowFirstAccessTutorial() {
 }
 
 function startApp(initialState) {
-  state = migrateState(initialState ?? loadState());
+  const raw = initialState ?? loadState();
+  const before = JSON.stringify(raw);
+  state = migrateState(typeof raw === "object" ? JSON.parse(JSON.stringify(raw)) : raw);
+  if (JSON.stringify(state) !== before) {
+    scheduleSave();
+  }
 
   if (window.ObraAuth?.isCloud?.()) {
     document.getElementById("btn-logout")?.classList.remove("hidden");
