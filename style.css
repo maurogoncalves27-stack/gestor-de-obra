@@ -40,6 +40,11 @@ body {
   color: var(--text);
   line-height: 1.5;
   min-height: 100vh;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body.sidebar-open {
+  overflow: hidden;
 }
 
 button,
@@ -140,6 +145,20 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 99;
+  backdrop-filter: blur(2px);
+}
+
+.sidebar-backdrop.visible {
+  display: block;
 }
 
 /* Main */
@@ -169,8 +188,10 @@ textarea {
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: 8px;
-  padding: 0.4rem 0.65rem;
+  padding: 0.5rem 0.7rem;
   cursor: pointer;
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .topbar-info h2 {
@@ -188,7 +209,17 @@ textarea {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.btn-icon-only {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.btn-label {
+  white-space: nowrap;
 }
 
 .save-indicator {
@@ -766,6 +797,8 @@ textarea {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
+  touch-action: manipulation;
+  min-height: 44px;
 }
 
 .btn:hover { background: var(--accent-hover); }
@@ -773,6 +806,7 @@ textarea {
 .btn-sm {
   padding: 0.35rem 0.7rem;
   font-size: 0.82rem;
+  min-height: 36px;
 }
 
 .btn-ghost {
@@ -1106,8 +1140,8 @@ textarea {
 
 .fab-scan {
   position: fixed;
-  right: 1.25rem;
-  bottom: 1.25rem;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(5.5rem, calc(5.5rem + env(safe-area-inset-bottom)));
   width: 56px;
   height: 56px;
   border-radius: 50%;
@@ -1119,6 +1153,54 @@ textarea {
   box-shadow: 0 4px 20px rgba(217, 119, 6, 0.45);
   z-index: 90;
   transition: transform 0.15s;
+  touch-action: manipulation;
+}
+
+/* Bottom navigation (mobile) */
+.bottom-nav {
+  display: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 80;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  padding: 0.35rem 0.25rem max(0.35rem, env(safe-area-inset-bottom));
+  box-shadow: 0 -4px 20px rgba(15, 23, 42, 0.08);
+}
+
+.bottom-nav-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0.35rem 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 8px;
+  min-height: 52px;
+  touch-action: manipulation;
+}
+
+.bottom-nav-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.bottom-nav-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.bottom-nav-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .fab-scan:hover {
@@ -1210,6 +1292,7 @@ textarea {
 @media (max-width: 900px) {
   .sidebar {
     transform: translateX(-100%);
+    width: min(85vw, 300px);
   }
 
   .sidebar.open {
@@ -1221,7 +1304,48 @@ textarea {
   }
 
   .menu-toggle {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .topbar {
+    padding: 0.75rem 1rem;
+    gap: 0.65rem;
+  }
+
+  .topbar-info {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .topbar-info h2 {
+    font-size: 1.05rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topbar-info p {
+    font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .btn-scan-top .btn-label,
+  .topbar-actions .btn-ghost .btn-label {
+    display: none;
+  }
+
+  .btn-scan-top,
+  .topbar-actions .btn-ghost {
+    padding: 0.5rem 0.65rem;
+    min-width: 44px;
+  }
+
+  .save-indicator {
+    display: none;
   }
 
   .dashboard-grid,
@@ -1231,7 +1355,182 @@ textarea {
   }
 
   .kpi-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  .content {
+    padding: 1rem 1rem 6rem;
+  }
+
+  .bottom-nav {
+    display: flex;
+  }
+
+  .fab-scan {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .view-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .view-toolbar > .btn,
+  .view-toolbar > .filters + .btn {
+    width: 100%;
+  }
+
+  .toolbar-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .toolbar-actions .btn {
+    width: 100%;
+  }
+
+  .filters {
+    width: 100%;
+  }
+
+  .filters input,
+  .filters select {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .filters input[type="search"] {
+    min-width: 0;
+  }
+
+  .legend {
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+  }
+
+  .chart-body {
+    min-height: 220px;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* Tabelas viram cards no mobile */
+  .data-table:not(.data-table-compact) thead {
+    display: none;
+  }
+
+  .data-table:not(.data-table-compact) tbody tr {
+    display: block;
+    margin-bottom: 0.75rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+    box-shadow: var(--shadow);
+  }
+
+  .data-table:not(.data-table-compact) tbody tr:hover {
+    background: var(--bg-card);
+  }
+
+  .data-table:not(.data-table-compact) tbody td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 0.45rem 0;
+    border: none;
+    white-space: normal;
+    text-align: right;
+  }
+
+  .data-table:not(.data-table-compact) tbody td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    text-align: left;
+    flex-shrink: 0;
+    max-width: 42%;
+  }
+
+  .data-table:not(.data-table-compact) tbody td[data-label=""]::before,
+  .data-table:not(.data-table-compact) tbody td:not([data-label])::before {
+    display: none;
+  }
+
+  .data-table:not(.data-table-compact) tbody td.td-actions {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    padding-top: 0.65rem;
+    margin-top: 0.35rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .data-table:not(.data-table-compact) tbody td.td-actions::before {
+    display: none;
+  }
+
+  .data-table:not(.data-table-compact) tbody td.empty-state {
+    display: block;
+    text-align: center;
+  }
+
+  .data-table:not(.data-table-compact) tbody td.empty-state::before {
+    display: none;
+  }
+
+  .table-wrap:has(.data-table:not(.data-table-compact)) {
+    overflow: visible;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .data-table:not(.data-table-compact) tfoot {
+    display: block;
+    margin-top: 0.25rem;
+    padding: 0.85rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  .data-table:not(.data-table-compact) tfoot tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: center;
+  }
+
+  .data-table:not(.data-table-compact) tfoot td {
+    display: inline;
+    border: none;
+    padding: 0;
+    white-space: normal;
+  }
+
+  .gantt {
+    min-width: 560px;
+  }
+
+  .gantt-header,
+  .gantt-row {
+    grid-template-columns: 140px 1fr;
   }
 }
 
@@ -1240,11 +1539,53 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .kpi-value {
+    font-size: 1.2rem;
+  }
+
   .field-row {
     grid-template-columns: 1fr;
   }
 
   .content {
-    padding: 1rem;
+    padding: 0.85rem 0.85rem 6rem;
+  }
+
+  .modal {
+    max-width: none;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .modal-body {
+    max-height: none;
+    flex: 1;
+  }
+
+  .modal-footer,
+  .tutorial-footer {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  .panel-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .itens-resumo-card {
+    min-width: calc(50% - 0.5rem);
+  }
+}
+
+@media (min-width: 901px) {
+  .fab-scan {
+    bottom: max(1.25rem, env(safe-area-inset-bottom));
+  }
+
+  .bottom-nav {
+    display: none !important;
   }
 }

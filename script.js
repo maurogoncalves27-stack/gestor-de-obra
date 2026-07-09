@@ -451,20 +451,45 @@ function syncItemFromGasto(gasto) {
 }
 
 /* ── Navigation ── */
+function openSidebar() {
+  document.querySelector(".sidebar").classList.add("open");
+  const backdrop = document.getElementById("sidebar-backdrop");
+  backdrop.hidden = false;
+  backdrop.classList.add("visible");
+  document.body.classList.add("sidebar-open");
+}
+
+function closeSidebar() {
+  document.querySelector(".sidebar").classList.remove("open");
+  const backdrop = document.getElementById("sidebar-backdrop");
+  backdrop.classList.remove("visible");
+  backdrop.hidden = true;
+  document.body.classList.remove("sidebar-open");
+}
+
 function initNav() {
-  document.querySelectorAll(".nav-btn").forEach((btn) => {
+  document.querySelectorAll(".nav-btn, .bottom-nav-btn[data-view]").forEach((btn) => {
+    if (btn.dataset.view === "menu") return;
     btn.addEventListener("click", () => switchView(btn.dataset.view));
   });
   document.querySelectorAll("[data-goto]").forEach((btn) => {
     btn.addEventListener("click", () => switchView(btn.dataset.goto));
   });
   document.getElementById("menu-toggle").addEventListener("click", () => {
-    document.querySelector(".sidebar").classList.toggle("open");
+    const isOpen = document.querySelector(".sidebar").classList.contains("open");
+    if (isOpen) closeSidebar();
+    else openSidebar();
   });
+  document.getElementById("bottom-nav-more")?.addEventListener("click", openSidebar);
+  document.getElementById("sidebar-backdrop")?.addEventListener("click", closeSidebar);
 }
 
 function switchView(view) {
   document.querySelectorAll(".nav-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.view === view);
+  });
+  document.querySelectorAll(".bottom-nav-btn").forEach((b) => {
+    if (b.dataset.view === "menu") return;
     b.classList.toggle("active", b.dataset.view === view);
   });
   document.querySelectorAll(".view").forEach((v) => {
@@ -473,9 +498,10 @@ function switchView(view) {
   const [title, sub] = VIEW_TITLES[view] || ["", ""];
   document.getElementById("view-title").textContent = title;
   document.getElementById("view-subtitle").textContent = sub;
-  document.querySelector(".sidebar").classList.remove("open");
+  closeSidebar();
   render();
   if (view === "relatorios") setTimeout(renderCharts, 50);
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 /* ── Dashboard ── */
@@ -618,15 +644,15 @@ function renderDashboardGastos() {
     return;
   }
 
-  el.innerHTML = `<table class="data-table">
+  el.innerHTML = `<table class="data-table data-table-compact">
     <thead><tr><th>Data</th><th>Fornecedor</th><th>Etapa</th><th>Valor</th></tr></thead>
     <tbody>${recentes
       .map(
         (g) => `<tr>
-        <td>${formatDate(g.data)}</td>
-        <td>${esc(g.fornecedor || "—")}</td>
-        <td>${esc(getEtapaNome(g.etapaId))}</td>
-        <td>${formatMoney(Number(g.valor))}</td>
+        <td data-label="Data">${formatDate(g.data)}</td>
+        <td data-label="Fornecedor">${esc(g.fornecedor || "—")}</td>
+        <td data-label="Etapa">${esc(getEtapaNome(g.etapaId))}</td>
+        <td data-label="Valor">${formatMoney(Number(g.valor))}</td>
       </tr>`
       )
       .join("")}</tbody></table>`;
@@ -650,25 +676,25 @@ function renderEtapas() {
       totalAvanco += Number(e.percentualConclusao || 0);
 
       return `<tr>
-        <td>${e.ordem}</td>
-        <td><strong>${esc(e.nome)}</strong></td>
-        <td>${formatDate(e.dataInicio)}</td>
-        <td>${formatDate(e.dataFimPrevisto)}</td>
-        <td>${formatDate(e.dataFimReal)}</td>
-        <td>${formatMoney(orc)}</td>
-        <td>${formatMoney(gasto)}</td>
-        <td class="${desvioClass(desvio, orc)}">${desvio >= 0 ? "+" : ""}${formatMoney(desvio)}</td>
-        <td>${e.percentualConclusao}%</td>
-        <td>${renderDepSummary(e)}</td>
-        <td><span class="badge badge-${status}">${STATUS_LABELS[status]}</span></td>
-        <td>
+        <td data-label="#">${e.ordem}</td>
+        <td data-label="Etapa"><strong>${esc(e.nome)}</strong></td>
+        <td data-label="Início">${formatDate(e.dataInicio)}</td>
+        <td data-label="Fim previsto">${formatDate(e.dataFimPrevisto)}</td>
+        <td data-label="Fim real">${formatDate(e.dataFimReal)}</td>
+        <td data-label="Orçamento">${formatMoney(orc)}</td>
+        <td data-label="Gasto">${formatMoney(gasto)}</td>
+        <td data-label="Desvio" class="${desvioClass(desvio, orc)}">${desvio >= 0 ? "+" : ""}${formatMoney(desvio)}</td>
+        <td data-label="% físico">${e.percentualConclusao}%</td>
+        <td data-label="Dependências">${renderDepSummary(e)}</td>
+        <td data-label="Status"><span class="badge badge-${status}">${STATUS_LABELS[status]}</span></td>
+        <td class="td-actions" data-label="">
           <button class="btn btn-ghost btn-sm" data-edit-etapa="${e.id}" type="button">Editar</button>
           <button class="btn-danger" data-del-etapa="${e.id}" type="button">Excluir</button>
         </td>
       </tr>`;
     })
     .join("")
-    : '<tr><td colspan="12" class="empty-state">Nenhuma etapa cadastrada. Clique em <strong>+ Nova etapa</strong> ou siga o tutorial.</td></tr>';
+    : '<tr><td colspan="12" class="empty-state" data-label="">Nenhuma etapa cadastrada. Clique em <strong>+ Nova etapa</strong> ou siga o tutorial.</td></tr>';
 
   document.getElementById("etapas-total-orcamento").textContent = formatMoney(totalOrc);
   document.getElementById("etapas-total-gasto").textContent = formatMoney(totalGasto);
@@ -811,16 +837,16 @@ function renderItens() {
       totalCons += consolidado;
 
       return `<tr>
-      <td><strong>${esc(i.nome)}</strong></td>
-      <td><span class="badge badge-${i.categoria}">${TIPO_LABELS[i.categoria] || i.categoria}</span></td>
-      <td>${esc(getEtapaNome(i.etapaId))}</td>
-      <td>${formatMoney(previsto)}</td>
-      <td>${formatMoney(consolidado)}</td>
-      <td class="${desvioClass(desvio, previsto)}">${desvio >= 0 ? "+" : ""}${formatMoney(desvio)}</td>
-      <td>${parcelado ? `<span class="parcela-pendente">${esc(getParcelamentoResumo(i))}</span>` : "—"}</td>
-      <td><span class="badge badge-${i.status}">${ITEM_STATUS_LABELS[i.status]}</span></td>
-      <td>${esc(i.fornecedor || "—")}</td>
-      <td>
+      <td data-label="Item"><strong>${esc(i.nome)}</strong></td>
+      <td data-label="Categoria"><span class="badge badge-${i.categoria}">${TIPO_LABELS[i.categoria] || i.categoria}</span></td>
+      <td data-label="Etapa">${esc(getEtapaNome(i.etapaId))}</td>
+      <td data-label="Previsto">${formatMoney(previsto)}</td>
+      <td data-label="Consolidado">${formatMoney(consolidado)}</td>
+      <td data-label="Desvio" class="${desvioClass(desvio, previsto)}">${desvio >= 0 ? "+" : ""}${formatMoney(desvio)}</td>
+      <td data-label="Pagamento">${parcelado ? `<span class="parcela-pendente">${esc(getParcelamentoResumo(i))}</span>` : "—"}</td>
+      <td data-label="Status"><span class="badge badge-${i.status}">${ITEM_STATUS_LABELS[i.status]}</span></td>
+      <td data-label="Fornecedor">${esc(i.fornecedor || "—")}</td>
+      <td class="td-actions" data-label="">
         <button class="btn btn-ghost btn-sm" data-edit-item="${i.id}" type="button">Editar</button>
         ${parcelado ? `<button class="btn btn-ghost btn-sm" data-parcelas-item="${i.id}" type="button">Parcelas</button>` : ""}
         ${!parcelado && i.status === "pendente" ? `<button class="btn btn-ghost btn-sm" data-comprar-item="${i.id}" type="button">Marcar comprado</button>` : ""}
@@ -1225,24 +1251,26 @@ function renderGastos() {
   const tbody = document.querySelector("#table-gastos tbody");
   let total = 0;
 
-  tbody.innerHTML = gastos
+  tbody.innerHTML = gastos.length
+    ? gastos
     .map((g) => {
       total += Number(g.valor || 0);
       return `<tr>
-        <td>${formatDate(g.data)}</td>
-        <td>${esc(g.nf || "—")}${g.comprovante ? ` <span class="gasto-comprovante" data-view-comp="${g.id}" title="Ver comprovante">📎</span>` : ""}</td>
-        <td>${esc(g.fornecedor || "—")}</td>
-        <td>${esc(g.descricao || "—")}</td>
-        <td>${esc(getEtapaNome(g.etapaId))}</td>
-        <td>${TIPO_LABELS[g.tipo] || g.tipo}</td>
-        <td>${formatMoney(Number(g.valor))}</td>
-        <td>
+        <td data-label="Data">${formatDate(g.data)}</td>
+        <td data-label="NF">${esc(g.nf || "—")}${g.comprovante ? ` <span class="gasto-comprovante" data-view-comp="${g.id}" title="Ver comprovante">📎</span>` : ""}</td>
+        <td data-label="Fornecedor">${esc(g.fornecedor || "—")}</td>
+        <td data-label="Descrição">${esc(g.descricao || "—")}</td>
+        <td data-label="Etapa">${esc(getEtapaNome(g.etapaId))}</td>
+        <td data-label="Tipo">${TIPO_LABELS[g.tipo] || g.tipo}</td>
+        <td data-label="Valor">${formatMoney(Number(g.valor))}</td>
+        <td class="td-actions" data-label="">
           <button class="btn btn-ghost btn-sm" data-edit-gasto="${g.id}" type="button">Editar</button>
           <button class="btn-danger" data-del-gasto="${g.id}" type="button">Excluir</button>
         </td>
       </tr>`;
     })
-    .join("");
+    .join("")
+    : '<tr><td colspan="8" class="empty-state" data-label="">Nenhum gasto encontrado</td></tr>';
 
   document.getElementById("gastos-total").textContent = formatMoney(total);
 
@@ -1571,15 +1599,28 @@ function buildCurvaFisicoFinanceira() {
 }
 
 function chartOpts(money, colors) {
+  const compact = window.matchMedia("(max-width: 900px)").matches;
   return {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { labels: { color: colors.text } } },
+    plugins: {
+      legend: {
+        labels: {
+          color: colors.text,
+          boxWidth: compact ? 10 : 12,
+          font: { size: compact ? 10 : 12 },
+        },
+      },
+    },
     scales: money ? {
-      x: { ticks: { color: colors.text, maxRotation: 45 }, grid: { color: colors.grid } },
+      x: {
+        ticks: { color: colors.text, maxRotation: compact ? 60 : 45, font: { size: compact ? 10 : 12 } },
+        grid: { color: colors.grid },
+      },
       y: {
         ticks: {
           color: colors.text,
+          font: { size: compact ? 10 : 12 },
           callback: (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }),
         },
         grid: { color: colors.grid },
@@ -2071,6 +2112,14 @@ function init() {
   ["filter-etapa", "filter-tipo", "filter-busca"].forEach((id) => {
     document.getElementById(id).addEventListener("input", renderGastos);
     document.getElementById(id).addEventListener("change", renderGastos);
+  });
+
+  let resizeTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (document.querySelector("#view-relatorios.active")) renderCharts();
+    }, 200);
   });
 
   render();
