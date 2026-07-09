@@ -5,10 +5,40 @@
   let currentUser = null;
   let onReady = null;
   let saveTimer = null;
+  let resolvedConfig = null;
+
+  function getRawConfig() {
+    return window.OBRA_CONFIG || {};
+  }
+
+  function decodeJwtPayload(token) {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const padded = part.replace(/-/g, "+").replace(/_/g, "/");
+    const json = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+    return JSON.parse(json);
+  }
+
+  function resolveSupabaseConfig() {
+    const raw = getRawConfig();
+    const key = (raw.supabaseAnonKey || "").trim();
+    let url = (raw.supabaseUrl || "").trim().replace(/\/$/, "");
+
+    if (key.startsWith("eyJ")) {
+      try {
+        const payload = decodeJwtPayload(key);
+        if (payload?.ref) {
+          url = `https://${payload.ref}.supabase.co`;
+        }
+      } catch (_) {}
+    }
+
+    return { url, key };
+  }
 
   function isConfigured() {
-    const c = window.OBRA_CONFIG;
-    return Boolean(c?.supabaseUrl?.trim() && c?.supabaseAnonKey?.trim());
+    const { url, key } = resolveSupabaseConfig();
+    return Boolean(url && key);
   }
 
   function $(id) {
@@ -19,6 +49,12 @@
     $("auth-loading")?.classList.toggle("hidden", view !== "loading");
     $("login-screen")?.classList.toggle("hidden", view !== "login");
     $("app-root")?.classList.toggle("hidden", view !== "app");
+  }
+
+  function updateLoginDebug() {
+    const el = $("login-debug");
+    if (!el || !resolvedConfig?.url) return;
+    el.textContent = `Projeto: ${resolvedConfig.url.replace("https://", "")}`;
   }
 
   function updateUserUI() {
@@ -39,6 +75,25 @@
     const d = document.createElement("div");
     d.textContent = str;
     return d.innerHTML;
+  }
+
+  async function verifySupabaseReachable(url) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(`${url}/auth/v1/health`, { signal: controller.signal });
+      return res.ok;
+    } catch (_) {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function createSupabaseClient() {
+    resolvedConfig = resolveSupabaseConfig();
+    updateLoginDebug();
+    return window.supabase.createClient(resolvedConfig.url, resolvedConfig.key);
   }
 
   async function loadCloudState(userId) {
@@ -114,16 +169,24 @@
     }
 
     setAuthView("loading");
-    supabase = window.supabase.createClient(
-      window.OBRA_CONFIG.supabaseUrl.trim(),
-      window.OBRA_CONFIG.supabaseAnonKey.trim()
-    );
+    resolvedConfig = resolveSupabaseConfig();
+
+    const reachable = await verifySupabaseReachable(resolvedConfig.url);
+    if (!reachable) {
+      setAuthView("login");
+      updateLoginDebug();
+      $("login-error")?.classList.remove("hidden");
+      return;
+    }
+
+    supabase = createSupabaseClient();
 
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) {
       await handleSession(session);
     } else {
       setAuthView("login");
+      updateLoginDebug();
     }
 
     supabase.auth.onAuthStateChange(async (event, session) => {
@@ -137,10 +200,22 @@
   }
 
   async function signInWithGoogle() {
-    if (!supabase) return;
+    if (!supabase) {
+      supabase = createSupabaseClient();
+    }
+
     const btn = $("btn-google-login");
     if (btn) btn.disabled = true;
+    $("login-error")?.classList.add("hidden");
+
     try {
+      const reachable = await verifySupabaseReachable(resolvedConfig.url);
+      if (!reachable) {
+        throw new Error(
+          `Não foi possível conectar ao Supabase em ${resolvedConfig.url}. Copie a URL exata em Project Settings → API.`
+        );
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -150,6 +225,7 @@
       if (error) throw error;
     } catch (err) {
       alert(err.message || "Erro ao entrar com Google.");
+      $("login-error")?.classList.remove("hidden");
       if (btn) btn.disabled = false;
     }
   }

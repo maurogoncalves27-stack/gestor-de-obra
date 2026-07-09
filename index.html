@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>Obra 103 — Cronograma & Controle de Gastos</title>
     <link rel="stylesheet" href="/style.css" />
-    <script src="/config.js"></script>
+    <script src="/config.js?v=4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
     <script src="/auth.js" defer></script>
@@ -31,6 +31,10 @@
           Entrar com Google
         </button>
         <p class="login-hint">Seus dados ficam protegidos na sua conta.</p>
+        <p class="login-debug" id="login-debug"></p>
+        <p class="login-error hidden" id="login-error">
+          URL do Supabase incorreta ou projeto inacessível. Copie a URL em <strong>Project Settings → API</strong> e atualize o <code>config.js</code>.
+        </p>
       </div>
     </div>
 

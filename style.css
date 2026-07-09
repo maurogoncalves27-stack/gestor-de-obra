@@ -1350,6 +1350,28 @@ textarea {
   color: var(--text-muted);
 }
 
+.login-debug {
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.login-error {
+  margin: 0.75rem 0 0;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.82rem;
+  color: #b91c1c;
+  background: var(--danger-soft);
+  border-radius: 8px;
+  border-left: 3px solid var(--danger);
+  text-align: left;
+}
+
+.login-error code {
+  font-size: 0.78rem;
+}
+
 .btn-google {
   width: 100%;
   display: inline-flex;
