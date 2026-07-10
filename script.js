@@ -182,74 +182,190 @@ function migrateState(data) {
 
 function applyDataPatches(data) {
   if (!data.meta) data.meta = {};
-  if ((data.meta.patchVersion || 0) >= 1) return;
+  let patchVersion = data.meta.patchVersion || 0;
 
-  const exists = (data.itens || []).some(
-    (i) =>
-      (i.fornecedor || "").toLowerCase().includes("cortopassi") ||
-      (i.nome || "").toLowerCase().includes("cortopassi")
-  );
+  if (patchVersion < 1) {
+    const exists = (data.itens || []).some(
+      (i) =>
+        (i.fornecedor || "").toLowerCase().includes("cortopassi") ||
+        (i.nome || "").toLowerCase().includes("cortopassi")
+    );
 
-  if (!exists) {
-    const itemId = uid();
-    const entradaParcelaId = uid();
-    const parcelaId = uid();
-    const gastoId = uid();
+    if (!exists) {
+      const itemId = uid();
+      const entradaParcelaId = uid();
+      const parcelaId = uid();
+      const gastoId = uid();
 
-    data.itens.push({
-      id: itemId,
-      nome: "Arquiteta Cortopassi",
-      categoria: "contratacao",
-      status: "comprado",
-      valorPrevisto: 5400,
-      fornecedor: "Cortopassi",
-      etapaId: "",
-      observacoes: "Contratação de projeto arquitetônico. Entrada paga em 08/07/2026. Saldo de R$ 2.400,00 vence em 05/08/2026.",
-      parcelamento: {
-        ativo: true,
-        entrada: 3000,
-        qtdParcelas: 1,
-        dataEntrada: "2026-07-08",
-        intervaloDias: 28,
-        parcelas: [
-          {
-            id: entradaParcelaId,
-            tipo: "entrada",
-            numero: 0,
-            valor: 3000,
-            vencimento: "2026-07-08",
-            paga: true,
-            gastoId,
-          },
-          {
-            id: parcelaId,
-            tipo: "parcela",
-            numero: 1,
-            valor: 2400,
-            vencimento: "2026-08-05",
-            paga: false,
-            gastoId: "",
-          },
-        ],
-      },
-    });
+      data.itens.push({
+        id: itemId,
+        nome: "Arquiteta Cortopassi",
+        categoria: "contratacao",
+        status: "entregue",
+        valorPrevisto: 5400,
+        fornecedor: "Cortopassi",
+        etapaId: "",
+        observacoes: "Contratação de projeto arquitetônico — serviço concluído. Entrada paga em 08/07/2026. Saldo de R$ 2.400,00 vence em 05/08/2026.",
+        parcelamento: {
+          ativo: true,
+          entrada: 3000,
+          qtdParcelas: 1,
+          dataEntrada: "2026-07-08",
+          intervaloDias: 28,
+          parcelas: [
+            {
+              id: entradaParcelaId,
+              tipo: "entrada",
+              numero: 0,
+              valor: 3000,
+              vencimento: "2026-07-08",
+              paga: true,
+              gastoId,
+            },
+            {
+              id: parcelaId,
+              tipo: "parcela",
+              numero: 1,
+              valor: 2400,
+              vencimento: "2026-08-05",
+              paga: false,
+              gastoId: "",
+            },
+          ],
+        },
+      });
 
-    data.gastos.push({
-      id: gastoId,
-      data: "2026-07-08",
-      valor: 3000,
-      nf: "",
-      fornecedor: "Cortopassi",
-      descricao: "Arquiteta Cortopassi — Entrada",
-      etapaId: "",
-      tipo: "contratacao",
-      itemId,
-      parcelaId: entradaParcelaId,
-      comprovante: "",
-    });
+      data.gastos.push({
+        id: gastoId,
+        data: "2026-07-08",
+        valor: 3000,
+        nf: "",
+        fornecedor: "Cortopassi",
+        descricao: "Arquiteta Cortopassi — Entrada",
+        etapaId: "",
+        tipo: "contratacao",
+        itemId,
+        parcelaId: entradaParcelaId,
+        comprovante: "",
+      });
+    }
+
+    patchVersion = 1;
   }
 
-  data.meta.patchVersion = 1;
+  if (patchVersion < 2) {
+    const exists = (data.itens || []).some((i) => (i.nome || "").toLowerCase().includes("fritadeira"));
+
+    if (!exists) {
+      const itemId = uid();
+      const gastoId = uid();
+
+      data.itens.push({
+        id: itemId,
+        nome: "Fritadeira",
+        categoria: "equipamento",
+        status: "comprado",
+        valorPrevisto: 6650,
+        fornecedor: "",
+        etapaId: "",
+        observacoes: "",
+        parcelamento: {
+          ativo: false,
+          entrada: 0,
+          qtdParcelas: 0,
+          dataEntrada: "",
+          intervaloDias: 30,
+          parcelas: [],
+        },
+      });
+
+      data.gastos.push({
+        id: gastoId,
+        data: "2026-07-09",
+        valor: 6650,
+        nf: "",
+        fornecedor: "",
+        descricao: "Fritadeira",
+        etapaId: "",
+        tipo: "equipamento",
+        itemId,
+        parcelaId: "",
+        comprovante: "",
+      });
+    }
+
+    patchVersion = 2;
+  }
+
+  if (patchVersion < 3) {
+    const exists = (data.itens || []).some(
+      (i) =>
+        (i.nome || "").toLowerCase().includes("monitor") &&
+        i.categoria === "equipamento"
+    );
+
+    if (!exists) {
+      const itemId = uid();
+      const gastoId = uid();
+
+      data.itens.push({
+        id: itemId,
+        nome: "Monitor de PC",
+        categoria: "equipamento",
+        status: "comprado",
+        valorPrevisto: 1764,
+        fornecedor: "",
+        etapaId: "",
+        observacoes: "",
+        parcelamento: {
+          ativo: false,
+          entrada: 0,
+          qtdParcelas: 0,
+          dataEntrada: "",
+          intervaloDias: 30,
+          parcelas: [],
+        },
+      });
+
+      data.gastos.push({
+        id: gastoId,
+        data: "2026-07-09",
+        valor: 1764,
+        nf: "",
+        fornecedor: "",
+        descricao: "Monitor de PC",
+        etapaId: "",
+        tipo: "equipamento",
+        itemId,
+        parcelaId: "",
+        comprovante: "",
+      });
+    }
+
+    patchVersion = 3;
+  }
+
+  if (patchVersion < 4) {
+    const cortopassi = (data.itens || []).find(
+      (i) =>
+        (i.fornecedor || "").toLowerCase().includes("cortopassi") ||
+        (i.nome || "").toLowerCase().includes("cortopassi")
+    );
+    if (cortopassi) {
+      cortopassi.status = "entregue";
+      if (!(cortopassi.observacoes || "").toLowerCase().includes("serviço concluído")) {
+        cortopassi.observacoes = [
+          cortopassi.observacoes,
+          "Serviço concluído (saldo de R$ 2.400,00 permanece para 05/08/2026).",
+        ]
+          .filter(Boolean)
+          .join(" ");
+      }
+    }
+    patchVersion = 4;
+  }
+
+  data.meta.patchVersion = patchVersion;
 }
 
 function loadState() {
@@ -323,6 +439,7 @@ function getDeps(etapa) {
 
 function isItemOk(item) {
   if (!item) return false;
+  if (item.status === "entregue") return true;
   if (item.categoria === "contratacao" && item.parcelamento?.ativo) {
     const parcelas = item.parcelamento.parcelas || [];
     return parcelas.length > 0 && parcelas.every((p) => p.paga);
@@ -380,9 +497,10 @@ function syncItemStatusFromParcelas(item) {
   if (!item.parcelamento?.ativo) return;
   const parcelas = item.parcelamento.parcelas || [];
   const pagas = parcelas.filter((p) => p.paga).length;
-  if (pagas === 0) item.status = "pendente";
-  else if (pagas < parcelas.length) item.status = "comprado";
-  else item.status = "entregue";
+  if (pagas === parcelas.length && parcelas.length > 0) item.status = "entregue";
+  else if (item.status === "entregue") return; // serviço concluído com saldo em aberto
+  else if (pagas === 0) item.status = "pendente";
+  else item.status = "comprado";
 }
 
 function getParcelamentoResumo(item) {
