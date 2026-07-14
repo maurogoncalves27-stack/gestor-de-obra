@@ -451,7 +451,7 @@ button.kpi-card.kpi-clickable:hover {
   background: #fff7ed !important;
 }
 
-/* Sticky Produto column on wide tables */
+/* Sticky Produto column on wide tables (left + corner with sticky thead) */
 .sticky-produto th.col-sticky-produto,
 .sticky-produto td.col-sticky-produto {
   position: sticky;
@@ -461,7 +461,9 @@ button.kpi-card.kpi-clickable:hover {
   box-shadow: 4px 0 8px -4px rgba(15, 23, 42, 0.18);
 }
 .sticky-produto thead th.col-sticky-produto {
-  z-index: 3;
+  /* corner: sticky top (from thead th) + left — above body cells & other headers */
+  top: 0;
+  z-index: 6;
   background: #f8fafc;
 }
 .sticky-produto-envio th.col-check,
@@ -472,12 +474,18 @@ button.kpi-card.kpi-clickable:hover {
   background: var(--bg-card);
 }
 .sticky-produto-envio thead th.col-check {
-  z-index: 3;
+  top: 0;
+  z-index: 6;
   background: #f8fafc;
 }
 .sticky-produto-envio th.col-sticky-produto,
 .sticky-produto-envio td.col-sticky-produto {
   left: 2.2rem;
+}
+.sticky-produto-envio thead th.col-sticky-produto {
+  top: 0;
+  z-index: 6;
+  background: #f8fafc;
 }
 
 .estoque-cards {
@@ -875,10 +883,12 @@ button.kpi-card.kpi-clickable:hover {
   }
 }
 
-/* Tables */
+/* Tables — overflow:auto + max-height so thead sticky top works with H-scroll
+   (overflow-x alone makes the wrap a scrollport and thead won't stick on page scroll) */
 .table-wrap,
 .scroll-x {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: calc(100dvh - 9.5rem);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-card);
@@ -886,6 +896,24 @@ button.kpi-card.kpi-clickable:hover {
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: #94a3b8 #e2e8f0;
+}
+@supports not (height: 1dvh) {
+  .table-wrap,
+  .scroll-x {
+    max-height: calc(100vh - 9.5rem);
+  }
+}
+@media (max-width: 900px) {
+  body.has-mobile-nav .table-wrap,
+  body.has-mobile-nav .scroll-x {
+    max-height: calc(100dvh - 12rem);
+  }
+  @supports not (height: 1dvh) {
+    body.has-mobile-nav .table-wrap,
+    body.has-mobile-nav .scroll-x {
+      max-height: calc(100vh - 12rem);
+    }
+  }
 }
 .table-wrap::-webkit-scrollbar,
 .scroll-x::-webkit-scrollbar {
@@ -923,14 +951,23 @@ button.kpi-card.kpi-clickable:hover {
 .table-hscroll-footer.visible {
   display: block;
 }
-/* While footer owns H-scroll, hide native bar on the synced wrap (overflow still works) */
+/* While footer owns H-scroll, hide only the native horizontal bar (keep vertical) */
 @media (min-width: 901px) {
   .table-wrap.hscroll-synced {
+    /* Firefox can't target one axis — hide both; V still works via wheel/trackpad */
     scrollbar-width: none;
   }
-  .table-wrap.hscroll-synced::-webkit-scrollbar {
+  .table-wrap.hscroll-synced::-webkit-scrollbar:horizontal {
     height: 0;
     display: none;
+  }
+  .table-wrap.hscroll-synced::-webkit-scrollbar:vertical {
+    width: 10px;
+  }
+  .table-wrap.hscroll-synced::-webkit-scrollbar-thumb:vertical {
+    background: #94a3b8;
+    border-radius: 99px;
+    border: 2px solid #e2e8f0;
   }
 }
 .table-hscroll-footer-inner {
@@ -989,9 +1026,13 @@ body.has-table-hscroll .content {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+.data-table thead th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 4;
+  background: #f8fafc;
+  box-shadow: 0 1px 0 var(--border);
 }
 .data-table tbody tr:hover { background: var(--bg-hover); }
 .totals-row td {
@@ -1850,6 +1891,12 @@ body.has-table-hscroll .content {
   @page {
     size: A4;
     margin: 12mm;
+  }
+
+  .table-wrap,
+  .scroll-x {
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   body {
