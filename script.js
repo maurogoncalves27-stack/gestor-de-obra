@@ -3546,7 +3546,7 @@ function renderEstoque() {
   const showFabMin = lojaId === "fabrica";
   const showAcoesVis = canEdit && (crudCentral || incluirOcultos);
   if (colAcoes) colAcoes.classList.toggle("hidden", !showAcoesVis);
-  const colSpan = (showAcoesVis ? 11 : 10) + (showFabMin ? 1 : 0);
+  const colSpan = (showAcoesVis ? 9 : 8) + (showFabMin ? 1 : 0);
 
   if (tableWrap) tableWrap.classList.toggle("hidden", useCards);
   if (cardsEl) {
@@ -3660,8 +3660,6 @@ function renderEstoque() {
             <button class="btn btn-ghost btn-sm" data-lotes="${p.id}" type="button">${esc(lotesLabel)}</button>
             ${lotesMismatch ? `<span class="lotes-mismatch" title="Soma dos lotes difere do saldo">Σ ${formatNum(somaLotes)}</span>` : ""}
           </td>
-          <td><input data-field="okEntregador" ${dis} type="checkbox" ${e.okEntregador ? "checked" : ""} /></td>
-          <td><input data-field="okLoja" ${dis} type="checkbox" ${e.okLoja ? "checked" : ""} /></td>
           <td><span class="badge badge-${st === "baixo" ? "baixo" : "ok"}">${st === "baixo" ? "Baixo" : st === "atencao" ? "Atenção" : "OK"}</span></td>
           ${acoesVis}
         </tr>`;
