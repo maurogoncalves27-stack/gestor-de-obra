@@ -192,6 +192,7 @@ function defaultState(seed) {
     produtosPorLoja: seed?.produtosPorLoja || {},
     solicitacoesEmergencia: [],
     historicoPrecos: [],
+    enviosAplicados: {},
   };
 }
 
@@ -255,6 +256,7 @@ function migrateState(data) {
   if (!data.produtosPorLoja || typeof data.produtosPorLoja !== "object") data.produtosPorLoja = {};
   if (!Array.isArray(data.solicitacoesEmergencia)) data.solicitacoesEmergencia = [];
   if (!Array.isArray(data.historicoPrecos)) data.historicoPrecos = [];
+  if (!data.enviosAplicados || typeof data.enviosAplicados !== "object") data.enviosAplicados = {};
   // Garante mapa de itens visíveis vindo do seed (filtro da planilha)
   if (seedCache?.produtosPorLoja) {
     Object.entries(seedCache.produtosPorLoja).forEach(([lid, ids]) => {
@@ -1380,7 +1382,7 @@ function renderDashboard() {
       parts.push(
         `<div class="alert-banner alert-warn" role="status">
           <strong>Solicitações de emergência</strong>
-          <span>${emergPendentes} pedido(s) pendente(s) das lojas.</span>
+          <span>${emergPendentes} pedido(s) pendente(s). Ao atender, escolha a origem do estoque (Central ou outra loja).</span>
           <button class="btn btn-ghost btn-sm" type="button" data-goto="emergencia">Atender</button>
         </div>`
       );
@@ -3895,27 +3897,30 @@ function renderEmergenciaDraft() {
 function renderEmergenciaPrintSheet(sol) {
   const sheet = document.getElementById("emergencia-print-sheet");
   if (!sheet || !sol) return;
+  const origemId = sol.origemLojaId || "central";
   const titulo = document.getElementById("emergencia-sheet-title");
   const meta = document.getElementById("emergencia-sheet-meta");
   const dateEl = document.getElementById("emergencia-sheet-date");
-  if (titulo) titulo.textContent = `Emergência — ${lojaNome(sol.lojaId)}`;
+  if (titulo) titulo.textContent = `Emergência — ${lojaNome(origemId)} → ${lojaNome(sol.lojaId)}`;
   if (meta) {
     meta.textContent = `Status: ${EMERGENCIA_STATUS[sol.status] || sol.status} · Criado: ${formatDateTimeBR(sol.createdAt)}${
       sol.dataDesejada ? ` · Desejado: ${formatDateBR(sol.dataDesejada)}` : ""
-    }`;
+    } · Origem: ${lojaNome(origemId)}`;
   }
   if (dateEl) dateEl.textContent = formatDateBR(hojeISO());
+  const saldoTh = document.getElementById("emergencia-sheet-saldo-th");
+  if (saldoTh) saldoTh.textContent = `Saldo ${lojaNome(origemId)}`;
   const tbody = document.querySelector("#table-emergencia-print tbody");
   if (tbody) {
     tbody.innerHTML = (sol.itens || [])
       .map((it) => {
         const p = getProduto(it.produtoId);
-        const central = ensureEstoque("central", it.produtoId);
+        const origemEst = ensureEstoque(origemId, it.produtoId);
         return `<tr>
           <td><strong>${esc(p?.nome || it.produtoId)}</strong></td>
           <td>${esc(p?.unidade || "")}</td>
           <td>${formatNum(it.qtde)}</td>
-          <td>${formatNum(central.saldo)}</td>
+          <td>${formatNum(origemEst.saldo)}</td>
         </tr>`;
       })
       .join("");
@@ -3952,7 +3957,8 @@ function renderEmergencia() {
   }
   if (hint) {
     if (canCreateEmergencia() && needsLojaSel) {
-      hint.textContent = "Crie uma solicitação em nome da loja. Ao enviar o atendimento, o Central dá saída e a loja recebe entrada.";
+      hint.textContent =
+        "Crie uma solicitação em nome da loja. No envio, escolha a origem (Central ou outra loja): saída na origem e entrada no destino.";
     } else if (canCreateEmergencia()) {
       hint.textContent = "Peça itens urgentes ao Central a qualquer dia da semana (não só na sexta).";
     } else if (session.lojaId === "fabrica") {
@@ -4030,14 +4036,17 @@ function renderEmergencia() {
     .map((sol) => {
       const st = sol.status || "pendente";
       const isOwner = session.role === "loja" && session.lojaId === sol.lojaId;
+      const origemPreview =
+        st === "pendente" && canManageEmergencia() ? "central" : sol.origemLojaId || "central";
       const itensHtml = (sol.itens || [])
         .map((it) => {
           const p = getProduto(it.produtoId);
-          const centralSaldo = Number(ensureEstoque("central", it.produtoId).saldo || 0);
-          const centralHint = canManageEmergencia()
-            ? ` · Central: ${formatNum(centralSaldo)}`
-            : "";
-          return `<li><strong>${esc(p?.nome || it.produtoId)}</strong> — ${formatNum(it.qtde)} ${esc(p?.unidade || "")}${centralHint}</li>`;
+          let saldoHint = "";
+          if (canManageEmergencia() && st === "pendente") {
+            const saldoOrig = Number(ensureEstoque(origemPreview, it.produtoId).saldo || 0);
+            saldoHint = ` · <span data-emerg-saldo-pid="${it.produtoId}">${esc(lojaNome(origemPreview))}: ${formatNum(saldoOrig)}</span>`;
+          }
+          return `<li><strong>${esc(p?.nome || it.produtoId)}</strong> — ${formatNum(it.qtde)} ${esc(p?.unidade || "")}${saldoHint}</li>`;
         })
         .join("");
       const hist = (sol.historico || [])
@@ -4046,11 +4055,23 @@ function renderEmergencia() {
         .slice(0, 4)
         .map(
           (h) =>
-            `<div class="emergencia-hist-item">${esc(EMERGENCIA_STATUS[h.status] || h.status)} · ${formatDateTimeBR(h.at)}${h.nome ? ` · ${esc(h.nome)}` : ""}</div>`
+            `<div class="emergencia-hist-item">${esc(EMERGENCIA_STATUS[h.status] || h.status)} · ${formatDateTimeBR(h.at)}${h.nome ? ` · ${esc(h.nome)}` : ""}${h.nota ? ` · ${esc(h.nota)}` : ""}</div>`
         )
         .join("");
       const actions = [];
+      let origemSelectHtml = "";
       if (canManageEmergencia() && st === "pendente") {
+        const origens = getOrigensEmergencia();
+        const opts = origens
+          .map((l) => {
+            const same = l.id === sol.lojaId ? " (destino)" : "";
+            return `<option value="${l.id}"${l.id === "central" ? " selected" : ""}>${esc(l.nome)}${same}</option>`;
+          })
+          .join("");
+        origemSelectHtml = `<label class="field emergencia-origem-field no-print">
+          <span>Saindo de (origem)</span>
+          <select data-emerg-origem="${sol.id}" aria-label="Origem do estoque">${opts}</select>
+        </label>`;
         actions.push(`<button class="btn" data-emerg-enviar="${sol.id}" type="button">Enviar (baixa estoque)</button>`);
       }
       if ((canManageEmergencia() || isOwner) && st === "enviada") {
@@ -4062,22 +4083,43 @@ function renderEmergencia() {
       if (canManageEmergencia() || isOwner) {
         actions.push(`<button class="btn btn-ghost" data-emerg-print="${sol.id}" type="button">Imprimir</button>`);
       }
-      return `<article class="emergencia-card status-${st}">
+      const rotaHtml =
+        sol.origemLojaId || st === "enviada" || st === "atendida"
+          ? `<div class="contagem-meta emergencia-rota">${esc(lojaNome(sol.origemLojaId || "central"))} → ${esc(lojaNome(sol.lojaId))}</div>`
+          : "";
+      return `<article class="emergencia-card status-${st}" data-emerg-card="${sol.id}">
         <div class="emergencia-card-top">
           <div>
             <strong>${esc(lojaNome(sol.lojaId))}</strong>
+            ${rotaHtml}
             <div class="contagem-meta">${formatDateTimeBR(sol.createdAt)}${sol.dataDesejada ? ` · p/ ${formatDateBR(sol.dataDesejada)}` : ""}</div>
           </div>
           <span class="badge badge-${st === "pendente" ? "falta" : st === "enviada" ? "baixo" : st === "atendida" ? "ok" : "falta"}">${esc(EMERGENCIA_STATUS[st] || st)}</span>
         </div>
         ${sol.observacao ? `<p class="emergencia-obs">${esc(sol.observacao)}</p>` : ""}
         <ul class="emergencia-itens">${itensHtml}</ul>
+        ${origemSelectHtml}
         <div class="emergencia-hist">${hist || ""}</div>
         <div class="emergencia-actions no-print">${actions.join("")}</div>
       </article>`;
     })
     .join("");
 
+  list.querySelectorAll("[data-emerg-origem]").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const solId = sel.dataset.emergOrigem;
+      const origemId = sel.value || "central";
+      const card = list.querySelector(`[data-emerg-card="${solId}"]`);
+      const sol = getSolicitacoesEmergencia().find((s) => s.id === solId);
+      if (!card || !sol) return;
+      (sol.itens || []).forEach((it) => {
+        const span = card.querySelector(`[data-emerg-saldo-pid="${it.produtoId}"]`);
+        if (!span) return;
+        const saldo = Number(ensureEstoque(origemId, it.produtoId).saldo || 0);
+        span.textContent = `${lojaNome(origemId)}: ${formatNum(saldo)}`;
+      });
+    });
+  });
   list.querySelectorAll("[data-emerg-enviar]").forEach((btn) => {
     btn.addEventListener("click", () => enviarSolicitacaoEmergencia(btn.dataset.emergEnviar));
   });
