@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: netlify-gestaodeobra1
+  group: netlify-dvf-compras
   cancel-in-progress: true
 
 jobs:
