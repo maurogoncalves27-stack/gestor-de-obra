@@ -135,14 +135,57 @@ function emptyEstoqueEntry() {
     saldo: 0,
     minimo: 0,
     envio: 0,
-    validade1: "",
-    validade2: "",
-    validade3: "",
+    lotes: [],
     okEntregador: false,
     okLoja: false,
     minimoAuto: false,
     minimoManual: false,
   };
+}
+
+function normalizeValidadeISO(raw) {
+  if (!raw) return "";
+  const s = String(raw).trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
+}
+
+function emptyLote(partial = {}) {
+  return {
+    id: partial.id || uid(),
+    codigo: partial.codigo != null ? String(partial.codigo) : "",
+    qtde: Number(partial.qtde) || 0,
+    validade: normalizeValidadeISO(partial.validade) || "",
+  };
+}
+
+/** Migra validade1/2/3 legadas → lotes e normaliza o array. Remove campos antigos. */
+function migrateValidadesToLotes(entry) {
+  if (!entry || typeof entry !== "object") return entry;
+  if (!Array.isArray(entry.lotes)) entry.lotes = [];
+
+  const legacyDates = [1, 2, 3]
+    .map((n) => ({ n, data: normalizeValidadeISO(entry[`validade${n}`]) }))
+    .filter((x) => x.data);
+
+  if (legacyDates.length && entry.lotes.length === 0) {
+    legacyDates.forEach(({ n, data }) => {
+      entry.lotes.push(emptyLote({ codigo: `Lote ${n}`, qtde: 0, validade: data }));
+    });
+  }
+
+  delete entry.validade1;
+  delete entry.validade2;
+  delete entry.validade3;
+
+  entry.lotes = entry.lotes
+    .filter((l) => l && typeof l === "object")
+    .map((l) => emptyLote(l));
+
+  return entry;
+}
+
+function somaQtdeLotes(entry) {
+  return (entry?.lotes || []).reduce((s, l) => s + (Number(l.qtde) || 0), 0);
 }
 
 function emptyCotacaoEntry() {
@@ -414,6 +457,9 @@ function migrateState(data) {
   }
   data.lojas.forEach((l) => {
     if (!data.estoques[l.id]) data.estoques[l.id] = {};
+  });
+  Object.values(data.estoques).forEach((lojaMap) => {
+    Object.values(lojaMap || {}).forEach((e) => migrateValidadesToLotes(e));
   });
   data.fornecedores.forEach((f) => {
     if (!data.cotacoes[f.id]) data.cotacoes[f.id] = {};
@@ -828,7 +874,11 @@ function categorias() {
 
 function ensureEstoque(lojaId, produtoId) {
   if (!state.estoques[lojaId]) state.estoques[lojaId] = {};
-  if (!state.estoques[lojaId][produtoId]) state.estoques[lojaId][produtoId] = emptyEstoqueEntry();
+  if (!state.estoques[lojaId][produtoId]) {
+    state.estoques[lojaId][produtoId] = emptyEstoqueEntry();
+  } else {
+    migrateValidadesToLotes(state.estoques[lojaId][produtoId]);
+  }
   return state.estoques[lojaId][produtoId];
 }
 
@@ -876,6 +926,109 @@ function listBaixoMinimo(lojaIds) {
 
 function countBaixoMinimo(lojaId) {
   return listBaixoMinimo([lojaId]).length;
+}
+
+/** Dias de antecipação para alerta “próximo do vencimento” (admin setting futuro). */
+const VALIDADE_ALERTA_DIAS = 7;
+
+function hojeLocalISO() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function addDaysISO(iso, days) {
+  const [y, m, d] = String(iso || "")
+    .slice(0, 10)
+    .split("-")
+    .map(Number);
+  if (!y || !m || !d) return "";
+  const dt = new Date(y, m - 1, d + Number(days || 0));
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+/** Lojas cujo estoque o usuário atual pode ver para alertas de validade. */
+function lojasVisiveisValidade() {
+  if (!session || session.role === "fornecedor") return [];
+  if (session.role === "loja") return getLojas().filter((l) => l.id === session.lojaId);
+  return getLojas();
+}
+
+/**
+ * Escaneia lotes de produtos ativos (visíveis na loja).
+ * Vencido: validade < hoje · Próximo: hoje ≤ validade ≤ hoje + N dias.
+ */
+function listValidadesAlerta({ dias = VALIDADE_ALERTA_DIAS } = {}) {
+  const hoje = hojeLocalISO();
+  const limite = addDaysISO(hoje, dias);
+  const vencidos = [];
+  const proximos = [];
+
+  lojasVisiveisValidade().forEach((loja) => {
+    produtosDaLoja(loja.id).forEach((p) => {
+      const e = state.estoques[loja.id]?.[p.id];
+      if (!e) return;
+      migrateValidadesToLotes(e);
+      (e.lotes || []).forEach((lote) => {
+        const data = normalizeValidadeISO(lote.validade);
+        if (!data) return;
+        const item = {
+          produtoId: p.id,
+          nome: p.nome,
+          lojaId: loja.id,
+          loja: loja.nome || lojaNome(loja.id),
+          loteId: lote.id,
+          codigo: lote.codigo || "—",
+          qtde: Number(lote.qtde) || 0,
+          data,
+        };
+        if (data < hoje) vencidos.push(item);
+        else if (data <= limite) proximos.push(item);
+      });
+    });
+  });
+
+  const byDateThenName = (a, b) =>
+    a.data.localeCompare(b.data) || a.loja.localeCompare(b.loja) || a.nome.localeCompare(b.nome);
+  vencidos.sort(byDateThenName);
+  proximos.sort(byDateThenName);
+  return { vencidos, proximos, dias };
+}
+
+function renderValidadeAlertList(items, limit = 12) {
+  if (!items.length) return "";
+  const shown = items.slice(0, limit);
+  const more = items.length - shown.length;
+  const rows = shown
+    .map(
+      (x) =>
+        `<button type="button" class="alert-list-item" data-goto-estoque="${esc(x.lojaId)}" data-produto-busca="${esc(x.nome)}">
+          <strong>${esc(x.nome)}</strong>
+          <span>${esc(x.loja)} · ${esc(x.codigo)} · qtde ${formatNum(x.qtde)} · ${formatDateBR(x.data)}</span>
+        </button>`
+    )
+    .join("");
+  return `<div class="alert-list">${rows}${
+    more > 0 ? `<p class="alert-list-more">+${more} mais — abra Estoque para ver todos</p>` : ""
+  }</div>`;
+}
+
+function gotoEstoqueValidade(lojaId, busca) {
+  const sel = document.getElementById("filter-loja");
+  if (sel && lojaId) {
+    sel.value = lojaId;
+    sel.disabled = session.role === "loja";
+  }
+  const soBaixo = document.getElementById("filter-so-baixo");
+  if (soBaixo) soBaixo.checked = false;
+  const buscaEl = document.getElementById("filter-estoque-busca");
+  if (buscaEl) buscaEl.value = busca || "";
+  switchView("estoque");
 }
 
 function isLojaOperacional(lojaId) {
@@ -1146,6 +1299,130 @@ function openMinimoFabricaModal(produtoId) {
     modal.close();
     setupRoleFilters();
     render();
+  };
+}
+
+function openLotesModal(lojaId, produtoId) {
+  const p = getProduto(produtoId);
+  const entry = ensureEstoque(lojaId, produtoId);
+  if (!p) return;
+
+  const canEdit = session.role === "admin" || (session.role === "loja" && session.lojaId === lojaId);
+  let draft = (entry.lotes || []).map((l) => ({ ...emptyLote(l) }));
+
+  const modal = document.getElementById("modal");
+  const saveBtn = document.getElementById("modal-save");
+  const cancelBtn = document.getElementById("modal-cancel");
+  modal.classList.add("modal-wide");
+  if (saveBtn) {
+    saveBtn.classList.toggle("hidden", !canEdit);
+    saveBtn.textContent = "Salvar";
+  }
+  if (cancelBtn) cancelBtn.textContent = canEdit ? "Cancelar" : "Fechar";
+
+  const readDraftFromDom = () => {
+    const rows = [...document.querySelectorAll("#lotes-editor .lote-row")];
+    draft = rows.map((row) =>
+      emptyLote({
+        id: row.dataset.loteId || uid(),
+        codigo: row.querySelector("[data-lote-field=codigo]")?.value || "",
+        qtde: row.querySelector("[data-lote-field=qtde]")?.value,
+        validade: row.querySelector("[data-lote-field=validade]")?.value || "",
+      })
+    );
+  };
+
+  const paint = () => {
+    const soma = draft.reduce((s, l) => s + (Number(l.qtde) || 0), 0);
+    const saldo = Number(entry.saldo) || 0;
+    const mismatch = draft.length > 0 && Math.abs(soma - saldo) > 1e-6;
+    const dis = canEdit ? "" : "disabled";
+    document.getElementById("modal-title").textContent = `Lotes — ${p.nome}`;
+    document.getElementById("modal-body").innerHTML = `
+      <p class="toolbar-hint">
+        Loja: <strong>${esc(lojaNome(lojaId))}</strong> ·
+        Saldo: <strong>${formatNum(saldo)}</strong> ${esc(p.unidade || "")}
+        ${
+          draft.length
+            ? ` · Soma lotes: <strong>${formatNum(soma)}</strong>${
+                mismatch ? ' <span class="lotes-mismatch">(difere do saldo)</span>' : ""
+              }`
+            : ""
+        }
+      </p>
+      <div class="lotes-editor" id="lotes-editor">
+        ${
+          draft.length
+            ? draft
+                .map(
+                  (l) => `
+          <div class="lote-row" data-lote-id="${esc(l.id)}">
+            <label class="field lote-field">
+              <span>Código</span>
+              <input data-lote-field="codigo" ${dis} type="text" value="${escAttr(l.codigo)}" placeholder="Opcional" />
+            </label>
+            <label class="field lote-field">
+              <span>Qtde</span>
+              <input data-lote-field="qtde" ${dis} step="any" type="number" value="${l.qtde}" />
+            </label>
+            <label class="field lote-field">
+              <span>Validade</span>
+              <input data-lote-field="validade" ${dis} type="date" value="${escAttr(l.validade)}" />
+            </label>
+            ${
+              canEdit
+                ? `<button class="btn btn-ghost btn-sm lote-del" data-lote-del="${esc(l.id)}" type="button" title="Remover lote">✕</button>`
+                : ""
+            }
+          </div>`
+                )
+                .join("")
+            : '<p class="empty-state">Nenhum lote cadastrado</p>'
+        }
+      </div>
+      ${canEdit ? '<button class="btn btn-ghost" id="lote-add" type="button">+ Adicionar lote</button>' : ""}
+      <p class="field-hint">A soma das quantidades é só um aviso — o saldo do produto continua independente.</p>`;
+
+    document.getElementById("lote-add")?.addEventListener("click", () => {
+      readDraftFromDom();
+      draft.push(emptyLote({ codigo: "", qtde: 0, validade: "" }));
+      paint();
+    });
+    document.querySelectorAll("[data-lote-del]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        readDraftFromDom();
+        draft = draft.filter((l) => l.id !== btn.dataset.loteDel);
+        paint();
+      });
+    });
+  };
+
+  paint();
+  modal.showModal();
+
+  const onClose = () => {
+    modal.classList.remove("modal-wide");
+    if (saveBtn) saveBtn.classList.remove("hidden");
+    if (cancelBtn) cancelBtn.textContent = "Cancelar";
+    modal.removeEventListener("close", onClose);
+  };
+  modal.addEventListener("close", onClose);
+
+  document.getElementById("modal-form").onsubmit = (ev) => {
+    ev.preventDefault();
+    if (!canEdit) {
+      modal.close();
+      return;
+    }
+    readDraftFromDom();
+    entry.lotes = draft
+      .map((l) => emptyLote(l))
+      .filter((l) => l.validade || l.codigo || Number(l.qtde));
+    migrateValidadesToLotes(entry);
+    scheduleSave();
+    modal.close();
+    if (document.getElementById("view-estoque")?.classList.contains("active")) renderEstoque();
+    else render();
   };
 }
 
@@ -1749,9 +2026,36 @@ function renderDashboard() {
   const showCentralAlert =
     (session.role === "admin" || (session.role === "loja" && session.lojaId === "central")) && baixoCentral > 0;
   const showEmergAlert = canManageEmergencia() && emergPendentes > 0;
+  const { vencidos: lotesVencidos, proximos: lotesProximos, dias: diasVal } = listValidadesAlerta();
+  const showVencidos = session.role !== "fornecedor" && lotesVencidos.length > 0;
+  const showProximos = session.role !== "fornecedor" && lotesProximos.length > 0;
   const banner = document.getElementById("dash-alertas");
   if (banner) {
     const parts = [];
+    if (showVencidos) {
+      parts.push(
+        `<div class="alert-banner alert-danger alert-banner-stack" role="status">
+          <div class="alert-banner-head">
+            <strong>${lotesVencidos.length} item(ns) vencido(s)</strong>
+            <span>Lotes com validade anterior a hoje. Remova ou ajuste no Estoque.</span>
+            <button class="btn btn-ghost btn-sm" type="button" data-goto="estoque-validade">Ver estoque</button>
+          </div>
+          ${renderValidadeAlertList(lotesVencidos)}
+        </div>`
+      );
+    }
+    if (showProximos) {
+      parts.push(
+        `<div class="alert-banner alert-warn alert-banner-stack" role="status">
+          <div class="alert-banner-head">
+            <strong>${lotesProximos.length} próximo(s) do vencimento (${diasVal} dias)</strong>
+            <span>Lotes que vencem até ${formatDateBR(addDaysISO(hojeLocalISO(), diasVal))}.</span>
+            <button class="btn btn-ghost btn-sm" type="button" data-goto="estoque-validade">Ver estoque</button>
+          </div>
+          ${renderValidadeAlertList(lotesProximos)}
+        </div>`
+      );
+    }
     if (showCentralAlert) {
       parts.push(
         `<div class="alert-banner alert-danger" role="status">
@@ -1783,9 +2087,16 @@ function renderDashboard() {
           const soBaixo = document.getElementById("filter-so-baixo");
           if (soBaixo) soBaixo.checked = true;
           switchView("estoque");
+        } else if (btn.dataset.goto === "estoque-validade") {
+          gotoEstoqueValidade(session.role === "loja" ? session.lojaId : "", "");
         } else if (btn.dataset.goto === "emergencia") {
           switchView("emergencia");
         }
+      });
+    });
+    banner.querySelectorAll("[data-goto-estoque]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        gotoEstoqueValidade(btn.dataset.gotoEstoque, btn.dataset.produtoBusca || "");
       });
     });
   }
@@ -1793,6 +2104,16 @@ function renderDashboard() {
   const kpis = [];
   if (session.role !== "fornecedor") {
     kpis.push(`<article class="kpi-card"><p class="kpi-label">Abaixo do mínimo</p><p class="kpi-value kpi-danger">${baixo}</p></article>`);
+    if (lotesVencidos.length) {
+      kpis.push(
+        `<article class="kpi-card kpi-card-alert"><p class="kpi-label">Lotes vencidos</p><p class="kpi-value kpi-danger">${lotesVencidos.length}</p></article>`
+      );
+    }
+    if (lotesProximos.length) {
+      kpis.push(
+        `<article class="kpi-card"><p class="kpi-label">Próx. vencimento (${diasVal}d)</p><p class="kpi-value kpi-warn">${lotesProximos.length}</p></article>`
+      );
+    }
     if (session.role === "admin" || session.lojaId === "central") {
       kpis.push(
         `<article class="kpi-card kpi-card-alert"><p class="kpi-label">Central abaixo do mín.</p><p class="kpi-value kpi-danger">${baixoCentral}</p></article>`
@@ -2690,7 +3011,7 @@ function renderEstoque() {
   const showFabMin = lojaId === "fabrica";
   const showAcoesVis = canEdit && (crudCentral || incluirOcultos);
   if (colAcoes) colAcoes.classList.toggle("hidden", !showAcoesVis);
-  const colSpan = (showAcoesVis ? 13 : 12) + (showFabMin ? 1 : 0);
+  const colSpan = (showAcoesVis ? 11 : 10) + (showFabMin ? 1 : 0);
 
   const thead = document.querySelector("#table-estoque thead tr");
   if (thead && !thead.querySelector(".col-min-modo")) {
@@ -2707,6 +3028,11 @@ function renderEstoque() {
           const isAuto = temReceita && modo === "formula";
           const disMin = !canEdit || isAuto ? "disabled" : "";
           const disModo = canMinimoFab ? "" : "disabled";
+          const nLotes = (e.lotes || []).length;
+          const somaLotes = somaQtdeLotes(e);
+          const saldoNum = Number(e.saldo) || 0;
+          const lotesMismatch = nLotes > 0 && Math.abs(somaLotes - saldoNum) > 1e-6;
+          const lotesLabel = nLotes ? `${nLotes} lote${nLotes > 1 ? "s" : ""}` : "Gerenciar";
           const modoCell = showFabMin
             ? `<td class="td-min-modo">
                 <div class="min-modo-controls">
@@ -2752,9 +3078,10 @@ function renderEstoque() {
           </td>
           ${modoCell}
           <td><input class="cell-input" data-field="envio" ${dis} step="any" type="number" value="${e.envio}" /></td>
-          <td><input class="cell-input date" data-field="validade1" ${dis} type="date" value="${e.validade1 || ""}" /></td>
-          <td><input class="cell-input date" data-field="validade2" ${dis} type="date" value="${e.validade2 || ""}" /></td>
-          <td><input class="cell-input date" data-field="validade3" ${dis} type="date" value="${e.validade3 || ""}" /></td>
+          <td class="td-lotes">
+            <button class="btn btn-ghost btn-sm" data-lotes="${p.id}" type="button">${esc(lotesLabel)}</button>
+            ${lotesMismatch ? `<span class="lotes-mismatch" title="Soma dos lotes difere do saldo">Σ ${formatNum(somaLotes)}</span>` : ""}
+          </td>
           <td><input data-field="okEntregador" ${dis} type="checkbox" ${e.okEntregador ? "checked" : ""} /></td>
           <td><input data-field="okLoja" ${dis} type="checkbox" ${e.okLoja ? "checked" : ""} /></td>
           <td><span class="badge badge-${st === "baixo" ? "baixo" : "ok"}">${st === "baixo" ? "Baixo" : st === "atencao" ? "Atenção" : "OK"}</span></td>
@@ -2812,6 +3139,10 @@ function renderEstoque() {
         }
       });
     });
+  });
+
+  tbody.querySelectorAll("[data-lotes]").forEach((btn) => {
+    btn.addEventListener("click", () => openLotesModal(lojaId, btn.dataset.lotes));
   });
 
   tbody.querySelectorAll("[data-min-modo]").forEach((sel) => {

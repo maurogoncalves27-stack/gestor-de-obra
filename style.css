@@ -336,6 +336,90 @@ button, input, select, textarea { font: inherit; }
   color: #9a3412;
 }
 .alert-warn span { color: #c2410c; }
+.alert-banner-stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+.alert-banner-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 1rem;
+}
+.alert-banner-head span { flex: 1; min-width: 12rem; }
+.alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-height: 11rem;
+  overflow-y: auto;
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+.alert-list-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.35rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+}
+.alert-list-item:hover { background: rgba(0, 0, 0, 0.04); }
+.alert-list-item strong { font-weight: 600; }
+.alert-list-item span { color: inherit; opacity: 0.85; flex: none; min-width: 0; }
+.alert-list-more {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+.td-lotes {
+  white-space: nowrap;
+}
+.td-lotes .btn { vertical-align: middle; }
+.lotes-mismatch {
+  display: inline-block;
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #c2410c;
+}
+.lotes-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin: 0.75rem 0;
+}
+.lote-row {
+  display: grid;
+  grid-template-columns: 1.2fr 0.7fr 1fr auto;
+  gap: 0.5rem;
+  align-items: end;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+.lote-row .field { margin: 0; }
+.lote-del { align-self: end; margin-bottom: 0.1rem; }
+.modal.modal-wide {
+  max-width: 640px;
+}
+@media (max-width: 560px) {
+  .lote-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .lote-row .lote-field:nth-child(3) { grid-column: 1 / -1; }
+  .lote-del { grid-column: 1 / -1; justify-self: start; }
+}
 
 .cotacao-agenda-banner {
   margin: 0 0 0.85rem;
