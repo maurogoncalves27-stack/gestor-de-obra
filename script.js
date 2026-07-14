@@ -619,6 +619,36 @@ function migrateState(data) {
   (data.produtos || []).forEach((p) => {
     if (p && p.sku == null) p.sku = "";
   });
+  // Remove cadastro inválido "diferença tampas" (id 310 — não é produto)
+  const dropIds = new Set(
+    (data.produtos || [])
+      .filter((p) => {
+        if (!p) return false;
+        if (p.id === "310") return true;
+        const blob = `${p.nome || ""} ${p.unidade || ""}`.toLowerCase();
+        return blob.includes("diferença tampas") || blob.includes("diferenca tampas");
+      })
+      .map((p) => p.id)
+  );
+  if (dropIds.size) {
+    data.produtos = (data.produtos || []).filter((p) => !dropIds.has(p.id));
+    Object.values(data.estoques || {}).forEach((lojaMap) => {
+      if (!lojaMap) return;
+      dropIds.forEach((id) => delete lojaMap[id]);
+    });
+    Object.values(data.cotacoes || {}).forEach((fmap) => {
+      if (!fmap) return;
+      dropIds.forEach((id) => delete fmap[id]);
+    });
+    Object.keys(data.produtosPorLoja || {}).forEach((lid) => {
+      const ids = data.produtosPorLoja[lid];
+      if (Array.isArray(ids)) data.produtosPorLoja[lid] = ids.filter((id) => !dropIds.has(id));
+    });
+    ["producao", "receitasMinimoFabrica", "producaoAuto", "baldesPor"].forEach((k) => {
+      if (!data[k]) return;
+      dropIds.forEach((id) => delete data[k][id]);
+    });
+  }
   data.fornecedores.forEach((f) => {
     if (!data.cotacoes[f.id]) data.cotacoes[f.id] = {};
     if (!data.usuarios.find((u) => u.id === f.id && u.role === "fornecedor")) {
