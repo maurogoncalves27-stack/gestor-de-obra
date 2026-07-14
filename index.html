@@ -366,15 +366,23 @@
           <!-- PRODUÇÃO -->
           <section class="view" id="view-producao">
             <div class="view-toolbar no-print">
-              <p class="toolbar-hint">Lista automática da fábrica: total a produzir = necessidade das lojas (estoque mínimo − atual). Lançe o que já foi produzido.</p>
+              <p class="toolbar-hint">Lista automática da fábrica: total a produzir = necessidade das lojas (mín − atual). Lance o já produzido; ao concluir, o saldo entra no Estoque Central.</p>
               <label class="check-inline">
                 <input checked id="filter-so-produzir" type="checkbox" />
                 Só itens PRODUZIR
               </label>
               <div class="toolbar-actions">
+                <button class="btn" id="btn-producao-concluir-lote" type="button">Concluir produção</button>
                 <button class="btn btn-ghost" id="btn-producao-print" type="button">Imprimir</button>
                 <button class="btn" id="btn-producao-pdf" type="button">Exportar PDF</button>
               </div>
+            </div>
+            <div class="producao-summary no-print">
+              <div class="producao-summary-top">
+                <p id="producao-ciclo-meta" class="contagem-progress">Ciclo</p>
+                <p id="producao-progress" class="contagem-progress">—</p>
+              </div>
+              <div class="contagem-progress-bar"><div id="producao-progress-bar"></div></div>
             </div>
             <div class="table-wrap no-print">
               <table class="data-table" id="table-producao">
@@ -387,6 +395,8 @@
                     <th>Baldes</th>
                     <th>Já produzido</th>
                     <th>Falta</th>
+                    <th>Status</th>
+                    <th>Ação</th>
                   </tr>
                 </thead>
                 <tbody></tbody>

@@ -148,7 +148,15 @@ function emptyCotacaoEntry() {
 }
 
 function emptyProducaoEntry() {
-  return { lista: "", totalProduzir: 0, qtdeBaldes: 0, totalProduzido: 0 };
+  return {
+    lista: "",
+    totalProduzir: 0,
+    qtdeBaldes: 0,
+    totalProduzido: 0,
+    producaoAplicadaEm: "",
+    concluidoAt: "",
+    concluidoQtde: 0,
+  };
 }
 
 function defaultState(seed) {
@@ -260,6 +268,7 @@ function migrateState(data) {
   if (!Array.isArray(data.solicitacoesEmergencia)) data.solicitacoesEmergencia = [];
   if (!Array.isArray(data.historicoPrecos)) data.historicoPrecos = [];
   if (!data.enviosAplicados || typeof data.enviosAplicados !== "object") data.enviosAplicados = {};
+  if (!data.producoesAplicadas || typeof data.producoesAplicadas !== "object") data.producoesAplicadas = {};
   // Garante mapa de itens visíveis vindo do seed (filtro da planilha)
   if (seedCache?.produtosPorLoja) {
     Object.entries(seedCache.produtosPorLoja).forEach(([lid, ids]) => {
@@ -2231,6 +2240,11 @@ function hardDeleteProduto(produtoId) {
   if (state.receitasMinimoFabrica) delete state.receitasMinimoFabrica[produtoId];
   if (state.producaoAuto) delete state.producaoAuto[produtoId];
   if (state.baldesPor) delete state.baldesPor[produtoId];
+  if (state.producoesAplicadas) {
+    Object.keys(state.producoesAplicadas).forEach((k) => {
+      if (k.startsWith(`${produtoId}|`)) delete state.producoesAplicadas[k];
+    });
+  }
   scheduleSave();
 }
 
@@ -2443,26 +2457,240 @@ function confirmDeleteProduto(produtoId) {
 }
 
 /* ── Produção ── */
+function inicioSemanaISO(from = new Date()) {
+  const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return toISODate(d);
+}
+
+function cicloProducaoAtual() {
+  return inicioSemanaISO();
+}
+
+function getProducaoAplicadaKey(produtoId, ciclo) {
+  return `${produtoId}|${ciclo || cicloProducaoAtual()}`;
+}
+
+function isProducaoConcluidaCiclo(pr, ciclo = cicloProducaoAtual()) {
+  return !!(pr?.producaoAplicadaEm && pr.producaoAplicadaEm === ciclo);
+}
+
+function canEditProducaoFabrica() {
+  return session?.role === "admin" || (session?.role === "loja" && session.lojaId === "fabrica");
+}
+
+/** Semana nova após conclusão: zera “já produzido” (histórico fica em producoesAplicadas). */
+function refreshProducaoCicloEntry(pr) {
+  const ciclo = cicloProducaoAtual();
+  if (pr.producaoAplicadaEm && pr.producaoAplicadaEm !== ciclo) {
+    pr.totalProduzido = 0;
+    pr.producaoAplicadaEm = "";
+    pr.concluidoAt = "";
+    pr.concluidoQtde = 0;
+    return true;
+  }
+  return false;
+}
+
+function concluirProducaoItens(produtoIds) {
+  if (!canEditProducaoFabrica()) {
+    alert("Somente Fábrica ou Admin podem concluir produção.");
+    return;
+  }
+  const ciclo = cicloProducaoAtual();
+  const elegiveis = [];
+  (produtoIds || []).forEach((pid) => {
+    if (!pid) return;
+    const pr = ensureProducao(pid);
+    refreshProducaoCicloEntry(pr);
+    if (isProducaoConcluidaCiclo(pr, ciclo)) return;
+    const q = Math.max(0, Number(pr.totalProduzido) || 0);
+    if (q <= 0) return;
+    elegiveis.push({ pid, pr, q, nome: getProduto(pid)?.nome || pid });
+  });
+
+  if (!elegiveis.length) {
+    alert(
+      'Nenhum item elegível: informe "Já produzido" > 0 e que ainda não esteja concluído nesta semana.'
+    );
+    return;
+  }
+
+  const resumo = elegiveis.map((x) => `• ${x.nome}: ${formatNum(x.q)}`).join("\n");
+  if (
+    !confirm(
+      `Concluir produção e creditar no Estoque Central?\n` +
+        `Ciclo (semana a partir de ${formatDateBR(ciclo)})\n\n` +
+        `${resumo}`
+    )
+  ) {
+    return;
+  }
+
+  if (!state.producoesAplicadas) state.producoesAplicadas = {};
+  const aplicadoAt = new Date().toISOString();
+  elegiveis.forEach(({ pid, pr, q }) => {
+    const centralEst = ensureEstoque("central", pid);
+    centralEst.saldo = Math.round((Number(centralEst.saldo || 0) + q) * 1000) / 1000;
+    pr.producaoAplicadaEm = ciclo;
+    pr.concluidoAt = aplicadoAt;
+    pr.concluidoQtde = q;
+    state.producoesAplicadas[getProducaoAplicadaKey(pid, ciclo)] = {
+      aplicado: true,
+      produtoId: pid,
+      ciclo,
+      qtde: q,
+      aplicadoAt,
+      aplicadoPor: session?.userId || "",
+    };
+  });
+
+  scheduleSave();
+  syncProducaoEMinimosFabrica();
+  renderProducao();
+  alert(`Produção concluída: ${elegiveis.length} item(ns) creditados no Central.`);
+}
+
+function desfazerConclusaoProducao(produtoId) {
+  if (session?.role !== "admin") {
+    alert("Somente Admin pode desfazer a conclusão.");
+    return;
+  }
+  const ciclo = cicloProducaoAtual();
+  const pr = ensureProducao(produtoId);
+  if (!isProducaoConcluidaCiclo(pr, ciclo)) {
+    alert("Este item não está concluído no ciclo atual.");
+    return;
+  }
+  const q = Number(pr.concluidoQtde || pr.totalProduzido) || 0;
+  const nome = getProduto(produtoId)?.nome || produtoId;
+  if (
+    !confirm(
+      `Desfazer conclusão de "${nome}"?\nRemove ${formatNum(q)} do Estoque Central (saldo pode ficar negativo).`
+    )
+  ) {
+    return;
+  }
+  const centralEst = ensureEstoque("central", produtoId);
+  centralEst.saldo = Math.round((Number(centralEst.saldo || 0) - q) * 1000) / 1000;
+  pr.producaoAplicadaEm = "";
+  pr.concluidoAt = "";
+  pr.concluidoQtde = 0;
+  if (state.producoesAplicadas) delete state.producoesAplicadas[getProducaoAplicadaKey(produtoId, ciclo)];
+  scheduleSave();
+  syncProducaoEMinimosFabrica();
+  renderProducao();
+}
+
+function listItensProducaoParaConcluirLote() {
+  const ciclo = cicloProducaoAtual();
+  return produtosAtivos()
+    .map((p) => ({ p, pr: ensureProducao(p.id) }))
+    .filter(({ pr }) => {
+      refreshProducaoCicloEntry(pr);
+      return (
+        pr.lista === "PRODUZIR" &&
+        !isProducaoConcluidaCiclo(pr, ciclo) &&
+        Number(pr.totalProduzido) > 0
+      );
+    })
+    .map(({ p }) => p.id);
+}
+
 function renderProducao() {
   syncProducaoEMinimosFabrica();
   const so = document.getElementById("filter-so-produzir").checked;
   const tbody = document.querySelector("#table-producao tbody");
   const isFab = session.role === "loja" && session.lojaId === "fabrica";
   const canEditMeta = session.role === "admin";
-  const canEditProduzido = session.role === "admin" || isFab;
+  const canEditProduzidoBase = canEditProducaoFabrica();
+  const ciclo = cicloProducaoAtual();
+  let cicloDirty = false;
 
   const rows = produtosAtivos()
-    .map((p) => ({ p, pr: ensureProducao(p.id) }))
+    .map((p) => {
+      const pr = ensureProducao(p.id);
+      if (refreshProducaoCicloEntry(pr)) cicloDirty = true;
+      return { p, pr };
+    })
     .filter((x) => !so || x.pr.lista === "PRODUZIR");
+
+  if (cicloDirty) scheduleSave();
+
+  const produzirRows = rows.filter((x) => x.pr.lista === "PRODUZIR");
+  let feitos = 0;
+  let somaPct = 0;
+  produzirRows.forEach(({ pr }) => {
+    const total = Math.max(0, Number(pr.totalProduzir) || 0);
+    const prod = Math.max(0, Number(pr.totalProduzido) || 0);
+    if (isProducaoConcluidaCiclo(pr, ciclo) || (total > 0 && prod >= total) || (total === 0 && prod > 0)) {
+      feitos++;
+    }
+    const pct = total > 0 ? Math.min(100, (prod / total) * 100) : prod > 0 ? 100 : 0;
+    somaPct += pct;
+  });
+  const nProd = produzirRows.length;
+  const pctGeral = nProd ? Math.round(somaPct / nProd) : 0;
+
+  const progressEl = document.getElementById("producao-progress");
+  const progressBar = document.getElementById("producao-progress-bar");
+  const metaCiclo = document.getElementById("producao-ciclo-meta");
+  if (progressEl) {
+    progressEl.textContent = nProd
+      ? `${feitos} de ${nProd} na lista · média ${pctGeral}% produzido`
+      : "Nenhum item PRODUZIR nesta semana";
+  }
+  if (progressBar) progressBar.style.width = `${pctGeral}%`;
+  if (metaCiclo) {
+    metaCiclo.textContent = `Ciclo: semana de ${formatDateBR(ciclo)}`;
+  }
+
+  const btnLote = document.getElementById("btn-producao-concluir-lote");
+  if (btnLote) {
+    btnLote.classList.toggle("hidden", !canEditProduzidoBase);
+    const nLote = listItensProducaoParaConcluirLote().length;
+    btnLote.disabled = nLote === 0;
+    btnLote.textContent =
+      nLote > 0 ? `Concluir produção (${nLote})` : "Concluir produção";
+  }
 
   tbody.innerHTML = rows.length
     ? rows
         .map(({ p, pr }) => {
-          const falta = Math.max(0, Number(pr.totalProduzir) - Number(pr.totalProduzido));
+          const total = Number(pr.totalProduzir) || 0;
+          const prod = Number(pr.totalProduzido) || 0;
+          const falta = Math.max(0, total - prod);
+          const concluido = isProducaoConcluidaCiclo(pr, ciclo);
           const auto = !!(state.producaoAuto || {})[p.id];
-          const disMeta = canEditMeta && !auto ? "" : "disabled";
-          const disProd = canEditProduzido ? "" : "disabled";
-          const rowClass = pr.lista === "PRODUZIR" ? (falta > 0 ? "row-atencao" : "row-ok") : "";
+          const disMeta = canEditMeta && !auto && !concluido ? "" : "disabled";
+          const disProd = canEditProduzidoBase && !concluido ? "" : "disabled";
+          const pct = total > 0 ? Math.min(100, Math.round((prod / total) * 100)) : prod > 0 ? 100 : 0;
+          let rowClass = "";
+          if (concluido) rowClass = "row-concluido";
+          else if (pr.lista === "PRODUZIR") rowClass = falta > 0 ? "row-atencao" : "row-ok";
+
+          let statusHtml = '<span class="badge badge-falta">Pendente</span>';
+          if (concluido) {
+            statusHtml = `<span class="badge badge-ok" title="Creditado em ${esc(
+              formatDateTimeBR(pr.concluidoAt)
+            )}">Concluído</span>`;
+          } else if (prod > 0) {
+            statusHtml = `<span class="badge badge-baixo">Em andamento</span>`;
+          }
+
+          let acaoHtml = "—";
+          if (concluido && session.role === "admin") {
+            acaoHtml = `<button type="button" class="btn btn-ghost btn-sm" data-acao="desfazer">Desfazer</button>`;
+          } else if (!concluido && canEditProduzidoBase) {
+            acaoHtml = `<button type="button" class="btn btn-sm" data-acao="concluir" ${
+              prod > 0 ? "" : "disabled"
+            }>Concluir</button>`;
+          } else if (concluido) {
+            acaoHtml = `<span class="muted-sm">Central +${formatNum(pr.concluidoQtde || prod)}</span>`;
+          }
+
           return `<tr class="${rowClass}" data-pid="${p.id}">
             <td><strong>${esc(p.nome)}</strong>${auto ? ' <span class="pill-lilas" title="Gerado pela necessidade (mín − atual)">auto</span>' : ""}</td>
             <td>${esc(p.unidade)}</td>
@@ -2474,23 +2702,55 @@ function renderProducao() {
             </td>
             <td><input class="cell-input" data-field="totalProduzir" ${disMeta} step="any" type="number" value="${pr.totalProduzir}" /></td>
             <td><input class="cell-input" data-field="qtdeBaldes" ${disMeta} step="any" type="number" value="${pr.qtdeBaldes}" /></td>
-            <td><input class="cell-input" data-field="totalProduzido" ${disProd} step="any" type="number" value="${pr.totalProduzido}" /></td>
-            <td><strong>${formatNum(falta)}</strong></td>
+            <td><input class="cell-input" data-field="totalProduzido" ${disProd} step="any" type="number" min="0" value="${pr.totalProduzido}" /></td>
+            <td>
+              <strong data-falta>${formatNum(falta)}</strong>
+              <div class="producao-row-progress" title="${pct}%"><div style="width:${pct}%"></div></div>
+            </td>
+            <td>${statusHtml}</td>
+            <td class="td-acoes">${acaoHtml}</td>
           </tr>`;
         })
         .join("")
-    : '<tr><td colspan="7" class="empty-state">Nada a produzir — estoque das lojas está acima do mínimo</td></tr>';
+    : '<tr><td colspan="9" class="empty-state">Nada a produzir — estoque das lojas está acima do mínimo</td></tr>';
 
   tbody.querySelectorAll("tr[data-pid]").forEach((tr) => {
     const pid = tr.dataset.pid;
     tr.querySelectorAll("[data-field]").forEach((input) => {
+      const field = input.dataset.field;
+      if (field === "totalProduzido") {
+        input.addEventListener("input", () => {
+          const pr = ensureProducao(pid);
+          const total = Number(pr.totalProduzir) || 0;
+          const prod = Number(input.value) || 0;
+          const faltaEl = tr.querySelector("[data-falta]");
+          if (faltaEl) faltaEl.textContent = formatNum(Math.max(0, total - prod));
+          const bar = tr.querySelector(".producao-row-progress > div");
+          if (bar) {
+            const pct = total > 0 ? Math.min(100, Math.round((prod / total) * 100)) : prod > 0 ? 100 : 0;
+            bar.style.width = `${pct}%`;
+          }
+          const btn = tr.querySelector('[data-acao="concluir"]');
+          if (btn) btn.disabled = !(prod > 0);
+        });
+      }
       input.addEventListener("change", () => {
         const pr = ensureProducao(pid);
-        const field = input.dataset.field;
+        if (isProducaoConcluidaCiclo(pr, ciclo) && field === "totalProduzido" && session.role !== "admin") {
+          renderProducao();
+          return;
+        }
         pr[field] = input.type === "number" ? Number(input.value) || 0 : input.value;
+        if (field === "totalProduzido") pr.totalProduzido = Math.max(0, Number(pr.totalProduzido) || 0);
         scheduleSave();
         renderProducao();
       });
+    });
+    tr.querySelector('[data-acao="concluir"]')?.addEventListener("click", () => {
+      concluirProducaoItens([pid]);
+    });
+    tr.querySelector('[data-acao="desfazer"]')?.addEventListener("click", () => {
+      desfazerConclusaoProducao(pid);
     });
   });
 }
@@ -2510,12 +2770,10 @@ function montarProducaoPrintSheet() {
   const sheet = document.getElementById("producao-print-sheet");
   const body = document.getElementById("producao-print-body");
   const meta = document.getElementById("producao-print-meta");
-  if (meta) {
-    meta.textContent = `Emitido em ${formatDateBR(hojeISO())} · ${rows.length} item(ns)${so ? " · só PRODUZIR" : ""}`;
-  }
 
   let totalProduzir = 0;
   let totalFalta = 0;
+  const ciclo = cicloProducaoAtual();
   body.innerHTML = `<table class="data-table">
     <thead>
       <tr>
@@ -2525,14 +2783,21 @@ function montarProducaoPrintSheet() {
         <th>Baldes</th>
         <th>Produzido</th>
         <th>Falta</th>
+        <th>Status</th>
       </tr>
     </thead>
     <tbody>
       ${rows
         .map(({ p, pr }) => {
+          refreshProducaoCicloEntry(pr);
           const falta = Math.max(0, Number(pr.totalProduzir) - Number(pr.totalProduzido));
           totalProduzir += Number(pr.totalProduzir) || 0;
           totalFalta += falta;
+          const st = isProducaoConcluidaCiclo(pr, ciclo)
+            ? "Concluído"
+            : Number(pr.totalProduzido) > 0
+              ? "Em andamento"
+              : "Pendente";
           return `<tr>
             <td>${esc(p.nome)}</td>
             <td>${esc(p.unidade)}</td>
@@ -2540,6 +2805,7 @@ function montarProducaoPrintSheet() {
             <td>${formatNum(pr.qtdeBaldes)}</td>
             <td>${formatNum(pr.totalProduzido)}</td>
             <td><strong>${formatNum(falta)}</strong></td>
+            <td>${st}</td>
           </tr>`;
         })
         .join("")}
@@ -2551,9 +2817,14 @@ function montarProducaoPrintSheet() {
         <td></td>
         <td></td>
         <td><strong>${formatNum(totalFalta)}</strong></td>
+        <td></td>
       </tr>
     </tfoot>
   </table>`;
+
+  if (meta) {
+    meta.textContent = `Emitido em ${formatDateBR(hojeISO())} · ciclo ${formatDateBR(ciclo)} · ${rows.length} item(ns)${so ? " · só PRODUZIR" : ""}`;
+  }
 
   return { sheet, filename: `producao-fabrica-${hojeISO()}` };
 }
@@ -4350,6 +4621,10 @@ function initEvents() {
   document.getElementById("btn-producao-print")?.addEventListener("click", () => {
     if (!can("producao")) return;
     exportarProducao("print");
+  });
+  document.getElementById("btn-producao-concluir-lote")?.addEventListener("click", () => {
+    if (!can("producao") || !canEditProducaoFabrica()) return;
+    concluirProducaoItens(listItensProducaoParaConcluirLote());
   });
   ["filter-valores-loja", "filter-valores-busca", "filter-valores-so-saldo"].forEach((id) => {
     const el = document.getElementById(id);

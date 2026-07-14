@@ -580,6 +580,56 @@ button, input, select, textarea { font: inherit; }
 .row-baixo { background: #fef2f2 !important; }
 .row-ok { }
 .row-atencao { background: #fff7ed !important; }
+.row-concluido { background: #f0fdf4 !important; }
+
+.muted-sm {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.producao-summary {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.85rem;
+  box-shadow: var(--shadow);
+}
+.producao-summary-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  margin-bottom: 0.45rem;
+}
+.producao-summary-top .contagem-progress {
+  margin: 0;
+}
+.producao-row-progress {
+  margin-top: 0.35rem;
+  height: 5px;
+  background: #e2e8f0;
+  border-radius: 99px;
+  overflow: hidden;
+  min-width: 4rem;
+}
+.producao-row-progress > div {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+@media (max-width: 720px) {
+  #table-producao .td-acoes {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #table-producao .td-acoes .btn {
+    width: 100%;
+  }
+}
 
 .badge {
   display: inline-block;
