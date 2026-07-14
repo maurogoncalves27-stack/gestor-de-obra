@@ -425,10 +425,12 @@
                 <input id="filter-cot-busca" placeholder="Buscar produto…" type="search" />
               </div>
               <p class="toolbar-hint" id="cotacao-hint">Preencha preço e status da sua cotação.</p>
+              <span class="badge badge-ok cotacao-agenda-badge hidden" id="cotacao-agenda-badge"></span>
               <button class="btn btn-ghost btn-sm hidden" id="btn-gerenciar-itens-cotacao" type="button">
                 Gerenciar itens ocultos
               </button>
             </div>
+            <div class="alert-banner alert-warn cotacao-agenda-banner hidden" id="cotacao-agenda-banner" role="status"></div>
             <div class="table-wrap">
               <table class="data-table" id="table-cotacao">
                 <thead>
@@ -664,6 +666,7 @@
           <section class="view" id="view-configuracoes">
             <div class="config-tabs" role="tablist" aria-label="Configurações">
               <button class="config-tab active" data-config-tab="usuarios" role="tab" type="button">Usuários</button>
+              <button class="config-tab" data-config-tab="cotacao" role="tab" type="button">Cotação</button>
               <button class="config-tab" data-config-tab="nuvem" role="tab" type="button">Nuvem</button>
             </div>
 
@@ -688,6 +691,67 @@
                   <tbody></tbody>
                 </table>
               </div>
+            </div>
+
+            <div class="config-panel hidden" id="config-panel-cotacao" data-config-panel="cotacao">
+              <div class="view-toolbar">
+                <p class="toolbar-hint">Define quando os fornecedores podem editar preços na Cotação.</p>
+              </div>
+              <article class="panel cot-agenda-panel">
+                <div class="panel-header"><h3>Janela da cotação</h3></div>
+                <div class="panel-body">
+                  <label class="check-inline cot-agenda-toggle">
+                    <input id="cot-agenda-auto" type="checkbox" />
+                    <span>Usar horário automático</span>
+                  </label>
+                  <p class="field-hint" id="cot-agenda-status" style="margin:0.75rem 0 1rem"></p>
+
+                  <div id="cot-agenda-manual-wrap">
+                    <label class="field">
+                      <span>Modo manual</span>
+                      <select id="cot-agenda-modo-manual">
+                        <option value="livre">Liberada</option>
+                        <option value="travada">Travada</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div id="cot-agenda-auto-wrap" class="hidden">
+                    <p class="field-hint" style="margin-bottom:0.75rem">
+                      Janela semanal (hora local do aparelho). Pode cruzar meia-noite ou a semana (ex.: Dom 08:00 → Seg 18:00).
+                    </p>
+                    <div class="field-row cot-agenda-row">
+                      <label class="field">
+                        <span>Início — dia</span>
+                        <select id="cot-agenda-inicio-dia"></select>
+                      </label>
+                      <label class="field">
+                        <span>Início — hora</span>
+                        <input id="cot-agenda-inicio-hora" type="time" />
+                      </label>
+                    </div>
+                    <div class="field-row cot-agenda-row">
+                      <label class="field">
+                        <span>Fim — dia</span>
+                        <select id="cot-agenda-fim-dia"></select>
+                      </label>
+                      <label class="field">
+                        <span>Fim — hora</span>
+                        <input id="cot-agenda-fim-hora" type="time" />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="cot-agenda-actions">
+                    <button class="btn btn-ghost btn-sm" id="btn-cot-liberar-agora" type="button">Liberar agora</button>
+                    <button class="btn btn-ghost btn-sm" id="btn-cot-travar-agora" type="button">Travar agora</button>
+                  </div>
+                  <p class="field-hint" style="margin-top:0.75rem">
+                    “Liberar/Travar agora” desliga o automático até você reativar o horário ou mudar o modo.
+                    Admin sempre pode editar; só o fornecedor fica bloqueado quando travada.
+                  </p>
+                </div>
+              </article>
             </div>
 
             <div class="config-panel hidden" id="config-panel-nuvem" data-config-panel="nuvem">
@@ -764,6 +828,18 @@
             </div>
           </section>
         </main>
+      </div>
+    </div>
+
+    <!-- Desktop sticky H-scroll synced with wide tables -->
+    <div
+      aria-hidden="true"
+      class="table-hscroll-footer"
+      id="table-hscroll-footer"
+      hidden
+    >
+      <div class="table-hscroll-footer-inner" id="table-hscroll-footer-inner">
+        <div class="table-hscroll-spacer" id="table-hscroll-spacer"></div>
       </div>
     </div>
 

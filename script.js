@@ -32,8 +32,10 @@ const VIEW_META = {
   resultado: ["Resultado", "Comparativo e vencedores"],
   valores: ["Valores", "Estoque valorizado pelas cotações"],
   fornecedores: ["Fornecedores", "Cadastro e acessos"],
-  configuracoes: ["Configurações", "Usuários e nuvem"],
+  configuracoes: ["Configurações", "Usuários, cotação e nuvem"],
 };
+
+const DIAS_COTACAO = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 const EMERGENCIA_STATUS = {
   pendente: "Pendente",
@@ -147,6 +149,119 @@ function emptyCotacaoEntry() {
   return { qtde: 0, preco: 0, observacoes: "", status: "FALTA" };
 }
 
+function defaultCotacaoAgenda() {
+  return {
+    modo: "livre",
+    inicioDia: 0,
+    inicioHora: "08:00",
+    fimDia: 1,
+    fimHora: "18:00",
+  };
+}
+
+function normalizeHoraCotacao(hhmm, fallback = "08:00") {
+  const m = String(hhmm || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return fallback;
+  const h = Math.min(23, Math.max(0, Number(m[1])));
+  const min = Math.min(59, Math.max(0, Number(m[2])));
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+function normalizeCotacaoAgenda(raw) {
+  const base = defaultCotacaoAgenda();
+  const a = raw && typeof raw === "object" ? raw : {};
+  const modo = ["auto", "livre", "travada"].includes(a.modo) ? a.modo : base.modo;
+  const inicioDia = Math.min(6, Math.max(0, Number(a.inicioDia)));
+  const fimDia = Math.min(6, Math.max(0, Number(a.fimDia)));
+  return {
+    modo,
+    inicioDia: Number.isFinite(inicioDia) ? inicioDia : base.inicioDia,
+    inicioHora: normalizeHoraCotacao(a.inicioHora, base.inicioHora),
+    fimDia: Number.isFinite(fimDia) ? fimDia : base.fimDia,
+    fimHora: normalizeHoraCotacao(a.fimHora, base.fimHora),
+  };
+}
+
+function ensureCotacaoAgenda() {
+  if (!state) return defaultCotacaoAgenda();
+  state.cotacaoAgenda = normalizeCotacaoAgenda(state.cotacaoAgenda);
+  return state.cotacaoAgenda;
+}
+
+function parseHoraToMinutes(hhmm) {
+  const norm = normalizeHoraCotacao(hhmm, "00:00");
+  const [h, m] = norm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function weekMinutesFrom(dia, hora) {
+  return Number(dia) * 24 * 60 + parseHoraToMinutes(hora);
+}
+
+function nowWeekMinutes(date = new Date()) {
+  return date.getDay() * 24 * 60 + date.getHours() * 60 + date.getMinutes();
+}
+
+/** Janela semanal; se início > fim, cruza meia-noite / virada da semana. */
+function cotacaoJanelaContem(nowM, startM, endM) {
+  if (startM === endM) return true;
+  if (startM < endM) return nowM >= startM && nowM < endM;
+  return nowM >= startM || nowM < endM;
+}
+
+function cotacaoEstaLiberada(date = new Date()) {
+  const a = ensureCotacaoAgenda();
+  if (a.modo === "livre") return true;
+  if (a.modo === "travada") return false;
+  return cotacaoJanelaContem(
+    nowWeekMinutes(date),
+    weekMinutesFrom(a.inicioDia, a.inicioHora),
+    weekMinutesFrom(a.fimDia, a.fimHora)
+  );
+}
+
+function formatDiaHoraCotacao(dia, hora) {
+  return `${DIAS_COTACAO[Number(dia) % 7] || "Dom"} ${normalizeHoraCotacao(hora)}`;
+}
+
+function labelStatusCotacaoAgenda(date = new Date()) {
+  const a = ensureCotacaoAgenda();
+  const liberada = cotacaoEstaLiberada(date);
+  if (a.modo === "livre") {
+    return { liberada: true, banner: "", badge: "Liberada (manual)", detalhe: "Modo manual — sempre liberada" };
+  }
+  if (a.modo === "travada") {
+    return {
+      liberada: false,
+      banner: "Cotação travada pelo administrador",
+      badge: "Travada (manual)",
+      detalhe: "Modo manual — sempre travada para fornecedores",
+    };
+  }
+  const ateInicio = formatDiaHoraCotacao(a.inicioDia, a.inicioHora);
+  const ateFim = formatDiaHoraCotacao(a.fimDia, a.fimHora);
+  if (liberada) {
+    return {
+      liberada: true,
+      banner: "",
+      badge: `Aberta até ${ateFim}`,
+      detalhe: `Automático — aberta até ${ateFim}`,
+    };
+  }
+  return {
+    liberada: false,
+    banner: `Cotação travada até ${ateInicio}`,
+    badge: `Travada até ${ateInicio}`,
+    detalhe: `Automático — libera em ${ateInicio}`,
+  };
+}
+
+function opcoesDiaCotacao(selected) {
+  return DIAS_COTACAO.map(
+    (nome, i) => `<option value="${i}" ${Number(selected) === i ? "selected" : ""}>${nome}</option>`
+  ).join("");
+}
+
 function emptyProducaoEntry() {
   return {
     lista: "",
@@ -202,6 +317,7 @@ function defaultState(seed) {
     historicoPrecos: [],
     enviosAplicados: {},
     fornecedorItensOcultos: {},
+    cotacaoAgenda: defaultCotacaoAgenda(),
   };
 }
 
@@ -219,6 +335,10 @@ function applyOperationalFromSeed(data, seed) {
     data.fornecedorItensOcultos && typeof data.fornecedorItensOcultos === "object"
       ? data.fornecedorItensOcultos
       : {};
+  const cotacaoAgenda =
+    data.cotacaoAgenda && typeof data.cotacaoAgenda === "object"
+      ? data.cotacaoAgenda
+      : fresh.cotacaoAgenda;
   const lojas = data.lojas?.length ? data.lojas : fresh.lojas;
   const fornecedores = data.fornecedores?.length ? data.fornecedores : fresh.fornecedores;
 
@@ -237,6 +357,7 @@ function applyOperationalFromSeed(data, seed) {
   data.historicoPrecos = historicoPrecos;
   data.enviosAplicados = enviosAplicados;
   data.fornecedorItensOcultos = fornecedorItensOcultos;
+  data.cotacaoAgenda = cotacaoAgenda;
   data.seedVersion = seed?.seedVersion || "";
   return migrateState(data);
 }
@@ -282,6 +403,7 @@ function migrateState(data) {
       if (!Array.isArray(data.fornecedorItensOcultos[fid])) data.fornecedorItensOcultos[fid] = [];
     });
   }
+  data.cotacaoAgenda = normalizeCotacaoAgenda(data.cotacaoAgenda);
   // Garante mapa de itens visíveis vindo do seed (filtro da planilha)
   if (seedCache?.produtosPorLoja) {
     Object.entries(seedCache.produtosPorLoja).forEach(([lid, ids]) => {
@@ -1194,6 +1316,7 @@ function tryLogin(userId, password) {
 function logout() {
   session = null;
   localStorage.removeItem(SESSION_KEY);
+  hideTableHScrollFooter();
   document.getElementById("app").classList.add("hidden");
   document.getElementById("login-screen").classList.remove("hidden");
   document.getElementById("login-pass").value = "";
@@ -1365,15 +1488,86 @@ function switchView(view) {
 let configTab = "usuarios";
 
 function switchConfigTab(tab) {
-  configTab = tab === "nuvem" ? "nuvem" : "usuarios";
-  document.querySelectorAll(".config-tab").forEach((b) => {
+  const allowed = ["usuarios", "nuvem", "cotacao"];
+  configTab = allowed.includes(tab) ? tab : "usuarios";
+  document.querySelectorAll("[data-config-tab]").forEach((b) => {
     b.classList.toggle("active", b.dataset.configTab === configTab);
   });
-  document.querySelectorAll("[data-config-panel]").forEach((p) => {
+  document.querySelectorAll("#view-configuracoes [data-config-panel]").forEach((p) => {
     p.classList.toggle("hidden", p.dataset.configPanel !== configTab);
   });
   if (configTab === "nuvem") renderNuvem();
+  else if (configTab === "cotacao") renderConfigCotacaoAgenda();
   else renderUsuarios();
+}
+
+function renderConfigCotacaoAgenda() {
+  if (session?.role !== "admin") return;
+  const a = ensureCotacaoAgenda();
+  const autoEl = document.getElementById("cot-agenda-auto");
+  const manualWrap = document.getElementById("cot-agenda-manual-wrap");
+  const autoWrap = document.getElementById("cot-agenda-auto-wrap");
+  const statusEl = document.getElementById("cot-agenda-status");
+  if (autoEl) autoEl.checked = a.modo === "auto";
+  if (manualWrap) manualWrap.classList.toggle("hidden", a.modo === "auto");
+  if (autoWrap) autoWrap.classList.toggle("hidden", a.modo !== "auto");
+
+  const modoManual = document.getElementById("cot-agenda-modo-manual");
+  if (modoManual) {
+    modoManual.value = a.modo === "travada" ? "travada" : "livre";
+  }
+
+  const iniDia = document.getElementById("cot-agenda-inicio-dia");
+  const fimDia = document.getElementById("cot-agenda-fim-dia");
+  const iniHora = document.getElementById("cot-agenda-inicio-hora");
+  const fimHora = document.getElementById("cot-agenda-fim-hora");
+  if (iniDia && !iniDia.options.length) {
+    iniDia.innerHTML = opcoesDiaCotacao(a.inicioDia);
+    fimDia.innerHTML = opcoesDiaCotacao(a.fimDia);
+  } else if (iniDia) {
+    iniDia.value = String(a.inicioDia);
+    fimDia.value = String(a.fimDia);
+  }
+  if (iniHora) iniHora.value = a.inicioHora;
+  if (fimHora) fimHora.value = a.fimHora;
+
+  const st = labelStatusCotacaoAgenda();
+  if (statusEl) {
+    statusEl.textContent = st.detalhe;
+    statusEl.classList.toggle("cot-agenda-status-ok", st.liberada);
+    statusEl.classList.toggle("cot-agenda-status-lock", !st.liberada);
+  }
+}
+
+function readCotacaoAgendaFromForm() {
+  const a = ensureCotacaoAgenda();
+  const autoOn = document.getElementById("cot-agenda-auto")?.checked;
+  if (autoOn) {
+    a.modo = "auto";
+  } else {
+    const manual = document.getElementById("cot-agenda-modo-manual")?.value;
+    a.modo = manual === "travada" ? "travada" : "livre";
+  }
+  const iniDia = Number(document.getElementById("cot-agenda-inicio-dia")?.value);
+  const fimDia = Number(document.getElementById("cot-agenda-fim-dia")?.value);
+  a.inicioDia = Number.isFinite(iniDia) ? Math.min(6, Math.max(0, iniDia)) : a.inicioDia;
+  a.fimDia = Number.isFinite(fimDia) ? Math.min(6, Math.max(0, fimDia)) : a.fimDia;
+  a.inicioHora = normalizeHoraCotacao(
+    document.getElementById("cot-agenda-inicio-hora")?.value,
+    a.inicioHora
+  );
+  a.fimHora = normalizeHoraCotacao(document.getElementById("cot-agenda-fim-hora")?.value, a.fimHora);
+  state.cotacaoAgenda = normalizeCotacaoAgenda(a);
+  return state.cotacaoAgenda;
+}
+
+function saveCotacaoAgendaFromForm() {
+  readCotacaoAgendaFromForm();
+  scheduleSave();
+  renderConfigCotacaoAgenda();
+  if (document.getElementById("view-cotacao")?.classList.contains("active")) {
+    renderCotacao();
+  }
 }
 
 function renderMinhaSenha() {
@@ -2980,11 +3174,47 @@ function renderCotacao() {
   const cat = document.getElementById("filter-cot-categoria").value;
   const busca = document.getElementById("filter-cot-busca").value.toLowerCase();
   const tbody = document.querySelector("#table-cotacao tbody");
+  const agenda = labelStatusCotacaoAgenda();
+  const fornecedorBloqueado = session.role === "fornecedor" && !agenda.liberada;
   const canEdit =
-    session.role === "admin" || (session.role === "fornecedor" && session.fornecedorId === fid);
+    session.role === "admin" ||
+    (session.role === "fornecedor" && session.fornecedorId === fid && !fornecedorBloqueado);
   // Só na visão do próprio fornecedor: itens que ele ocultou não entram na tabela
   const ocultos =
     session.role === "fornecedor" ? new Set(getItensOcultosFornecedor(session.fornecedorId)) : null;
+
+  const banner = document.getElementById("cotacao-agenda-banner");
+  const badge = document.getElementById("cotacao-agenda-badge");
+  if (banner) {
+    if (fornecedorBloqueado && agenda.banner) {
+      banner.classList.remove("hidden");
+      banner.innerHTML = `<strong>${esc(agenda.banner)}</strong><span>Edição de preços e quantidades está bloqueada neste horário.</span>`;
+    } else if (session.role === "admin" && !agenda.liberada) {
+      banner.classList.remove("hidden");
+      banner.innerHTML = `<strong>${esc(agenda.banner || "Cotação travada para fornecedores")}</strong><span>Você (admin) ainda pode editar.</span>`;
+    } else {
+      banner.classList.add("hidden");
+      banner.innerHTML = "";
+    }
+  }
+  if (badge) {
+    if (session.role === "fornecedor" && agenda.liberada && agenda.badge && ensureCotacaoAgenda().modo === "auto") {
+      badge.classList.remove("hidden");
+      badge.textContent = agenda.badge;
+    } else if (session.role === "admin" && agenda.badge) {
+      badge.classList.remove("hidden");
+      badge.textContent = agenda.badge;
+    } else {
+      badge.classList.add("hidden");
+      badge.textContent = "";
+    }
+  }
+  const hint = document.getElementById("cotacao-hint");
+  if (hint && session.role === "fornecedor") {
+    hint.textContent = fornecedorBloqueado
+      ? agenda.banner || "Cotação travada — edição desabilitada."
+      : `Você está cotando como ${session.nome}. Só esta cotação é editável.`;
+  }
 
   // sync qtde from necessidade (mín − atual) for admin convenience
   let totalOk = 0;
@@ -3039,6 +3269,7 @@ function renderCotacao() {
     const pid = tr.dataset.pid;
     tr.querySelectorAll("[data-field]").forEach((input) => {
       input.addEventListener("change", () => {
+        if (session.role === "fornecedor" && !cotacaoEstaLiberada()) return;
         const c = ensureCotacao(fid, pid);
         const field = input.dataset.field;
         if (field === "qtde" || field === "preco") c[field] = Number(input.value) || 0;
@@ -4683,6 +4914,137 @@ function render() {
   if (active === "valores") renderValores();
   if (active === "fornecedores") renderFornecedores();
   if (active === "configuracoes") renderConfiguracoes();
+  updateTableHScrollFooter();
+}
+
+/* ── Sticky viewport H-scroll for wide tables (desktop) ── */
+const TABLE_HSCROLL_MQ = window.matchMedia("(min-width: 901px)");
+let hscrollActiveWrap = null;
+let hscrollSyncing = false;
+let hscrollRaf = 0;
+let hscrollWrapObserver = null;
+let hscrollFooterBound = false;
+
+function findActiveOverflowTableWrap() {
+  const view = document.querySelector(".view.active");
+  if (!view) return null;
+  const wraps = [...view.querySelectorAll(".table-wrap")].filter((el) => {
+    const style = getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+    return el.scrollWidth > el.clientWidth + 1;
+  });
+  if (!wraps.length) return null;
+  // Prefer the wrap nearest the vertical center of the viewport; else the widest
+  const mid = window.innerHeight / 2;
+  let best = wraps[0];
+  let bestScore = Infinity;
+  for (const w of wraps) {
+    const r = w.getBoundingClientRect();
+    const dist = Math.abs(r.top + r.height / 2 - mid);
+    if (dist < bestScore || (dist === bestScore && w.scrollWidth > best.scrollWidth)) {
+      best = w;
+      bestScore = dist;
+    }
+  }
+  return best;
+}
+
+function hideTableHScrollFooter() {
+  const footer = document.getElementById("table-hscroll-footer");
+  if (hscrollActiveWrap) {
+    hscrollActiveWrap.removeEventListener("scroll", onTableWrapScroll);
+    hscrollActiveWrap = null;
+  }
+  if (hscrollWrapObserver) {
+    hscrollWrapObserver.disconnect();
+    hscrollWrapObserver = null;
+  }
+  if (footer) {
+    footer.hidden = true;
+    footer.classList.remove("visible");
+  }
+  document.body.classList.remove("has-table-hscroll");
+}
+
+function onTableWrapScroll() {
+  if (hscrollSyncing || !hscrollActiveWrap) return;
+  const inner = document.getElementById("table-hscroll-footer-inner");
+  if (!inner) return;
+  hscrollSyncing = true;
+  inner.scrollLeft = hscrollActiveWrap.scrollLeft;
+  hscrollSyncing = false;
+}
+
+function onHScrollFooterScroll() {
+  if (hscrollSyncing || !hscrollActiveWrap) return;
+  const inner = document.getElementById("table-hscroll-footer-inner");
+  if (!inner) return;
+  hscrollSyncing = true;
+  hscrollActiveWrap.scrollLeft = inner.scrollLeft;
+  hscrollSyncing = false;
+}
+
+function bindHScrollActiveWrap(wrap) {
+  if (hscrollActiveWrap === wrap) return;
+  if (hscrollActiveWrap) hscrollActiveWrap.removeEventListener("scroll", onTableWrapScroll);
+  hscrollActiveWrap = wrap;
+  wrap.addEventListener("scroll", onTableWrapScroll, { passive: true });
+  if (hscrollWrapObserver) hscrollWrapObserver.disconnect();
+  if (typeof ResizeObserver !== "undefined") {
+    hscrollWrapObserver = new ResizeObserver(() => updateTableHScrollFooter());
+    hscrollWrapObserver.observe(wrap);
+    const table = wrap.querySelector("table");
+    if (table) hscrollWrapObserver.observe(table);
+  }
+}
+
+function updateTableHScrollFooter() {
+  if (hscrollRaf) cancelAnimationFrame(hscrollRaf);
+  hscrollRaf = requestAnimationFrame(() => {
+    hscrollRaf = 0;
+    const footer = document.getElementById("table-hscroll-footer");
+    const inner = document.getElementById("table-hscroll-footer-inner");
+    const spacer = document.getElementById("table-hscroll-spacer");
+    if (!footer || !inner || !spacer) return;
+
+    if (!TABLE_HSCROLL_MQ.matches || !session) {
+      hideTableHScrollFooter();
+      return;
+    }
+
+    const wrap = findActiveOverflowTableWrap();
+    if (!wrap) {
+      hideTableHScrollFooter();
+      return;
+    }
+
+    bindHScrollActiveWrap(wrap);
+    spacer.style.width = `${wrap.scrollWidth}px`;
+    footer.hidden = false;
+    footer.classList.add("visible");
+    document.body.classList.add("has-table-hscroll");
+    hscrollSyncing = true;
+    inner.scrollLeft = wrap.scrollLeft;
+    hscrollSyncing = false;
+  });
+}
+
+function initTableHScrollFooter() {
+  const inner = document.getElementById("table-hscroll-footer-inner");
+  if (inner && !hscrollFooterBound) {
+    inner.addEventListener("scroll", onHScrollFooterScroll, { passive: true });
+    hscrollFooterBound = true;
+  }
+  updateTableHScrollFooter();
+  window.addEventListener("resize", updateTableHScrollFooter, { passive: true });
+  // On vertical scroll, switch which overflowing table owns the footer bar
+  document.querySelector(".content")?.addEventListener("scroll", updateTableHScrollFooter, { passive: true });
+  window.addEventListener("scroll", updateTableHScrollFooter, { passive: true });
+  if (TABLE_HSCROLL_MQ.addEventListener) {
+    TABLE_HSCROLL_MQ.addEventListener("change", updateTableHScrollFooter);
+  } else if (TABLE_HSCROLL_MQ.addListener) {
+    TABLE_HSCROLL_MQ.addListener(updateTableHScrollFooter);
+  }
 }
 
 /* ── Init ── */
@@ -4703,11 +5065,43 @@ function initEvents() {
 
   document.getElementById("btn-logout").addEventListener("click", logout);
   document.getElementById("btn-config")?.addEventListener("click", () => switchView("configuracoes"));
-  document.querySelectorAll(".config-tab").forEach((btn) => {
+  document.querySelectorAll("[data-config-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (session?.role !== "admin") return;
       switchConfigTab(btn.dataset.configTab);
     });
+  });
+
+  const bindAgendaSave = (el, evt = "change") => {
+    el?.addEventListener(evt, () => {
+      if (session?.role !== "admin") return;
+      saveCotacaoAgendaFromForm();
+    });
+  };
+  bindAgendaSave(document.getElementById("cot-agenda-auto"));
+  bindAgendaSave(document.getElementById("cot-agenda-modo-manual"));
+  bindAgendaSave(document.getElementById("cot-agenda-inicio-dia"));
+  bindAgendaSave(document.getElementById("cot-agenda-fim-dia"));
+  bindAgendaSave(document.getElementById("cot-agenda-inicio-hora"));
+  bindAgendaSave(document.getElementById("cot-agenda-fim-hora"));
+
+  document.getElementById("btn-cot-liberar-agora")?.addEventListener("click", () => {
+    if (session?.role !== "admin") return;
+    const a = ensureCotacaoAgenda();
+    a.modo = "livre";
+    state.cotacaoAgenda = normalizeCotacaoAgenda(a);
+    scheduleSave();
+    renderConfigCotacaoAgenda();
+    if (document.getElementById("view-cotacao")?.classList.contains("active")) renderCotacao();
+  });
+  document.getElementById("btn-cot-travar-agora")?.addEventListener("click", () => {
+    if (session?.role !== "admin") return;
+    const a = ensureCotacaoAgenda();
+    a.modo = "travada";
+    state.cotacaoAgenda = normalizeCotacaoAgenda(a);
+    scheduleSave();
+    renderConfigCotacaoAgenda();
+    if (document.getElementById("view-cotacao")?.classList.contains("active")) renderCotacao();
   });
   document.getElementById("btn-config-save-pass")?.addEventListener("click", () => {
     if (session?.role !== "fornecedor") return;
@@ -4901,6 +5295,7 @@ function initEvents() {
   bindEnvioEvents();
   bindEmergenciaEvents();
   bindContagemEvents();
+  initTableHScrollFooter();
 }
 
 async function init() {

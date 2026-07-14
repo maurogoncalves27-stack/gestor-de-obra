@@ -337,6 +337,36 @@ button, input, select, textarea { font: inherit; }
 }
 .alert-warn span { color: #c2410c; }
 
+.cotacao-agenda-banner {
+  margin: 0 0 0.85rem;
+}
+.cotacao-agenda-badge {
+  align-self: center;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.cot-agenda-panel {
+  max-width: 640px;
+}
+.cot-agenda-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.cot-agenda-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+.cot-agenda-status-ok { color: #15803d; }
+.cot-agenda-status-lock { color: #9a3412; }
+@media (max-width: 520px) {
+  .cot-agenda-row { grid-template-columns: 1fr; }
+}
+
 .list-item-alert {
   background: #fef2f2;
   margin: 0 -0.35rem;
@@ -602,10 +632,10 @@ button, input, select, textarea { font: inherit; }
   }
 }
 
-/* Tables — horizontal bar always visible on wide tables */
+/* Tables */
 .table-wrap,
 .scroll-x {
-  overflow-x: scroll;
+  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-card);
@@ -617,7 +647,6 @@ button, input, select, textarea { font: inherit; }
 .table-wrap::-webkit-scrollbar,
 .scroll-x::-webkit-scrollbar {
   height: 10px;
-  display: block;
 }
 .table-wrap::-webkit-scrollbar-track,
 .scroll-x::-webkit-scrollbar-track {
@@ -633,6 +662,59 @@ button, input, select, textarea { font: inherit; }
 .table-wrap::-webkit-scrollbar-thumb:hover,
 .scroll-x::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+}
+
+/* Sticky viewport H-scroll (desktop) — bar stays at bottom of screen */
+.table-hscroll-footer {
+  display: none;
+  position: fixed;
+  left: var(--sidebar-w, 260px);
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  height: 14px;
+  background: #f1f5f9;
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -2px 8px rgba(15, 23, 42, 0.06);
+}
+.table-hscroll-footer.visible {
+  display: block;
+}
+.table-hscroll-footer-inner {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #e2e8f0;
+}
+.table-hscroll-footer-inner::-webkit-scrollbar {
+  height: 12px;
+}
+.table-hscroll-footer-inner::-webkit-scrollbar-track {
+  background: #e2e8f0;
+}
+.table-hscroll-footer-inner::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 99px;
+  border: 2px solid #e2e8f0;
+}
+.table-hscroll-footer-inner::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+.table-hscroll-spacer {
+  height: 1px;
+  pointer-events: none;
+}
+body.has-table-hscroll .content {
+  padding-bottom: calc(1.35rem + 18px);
+}
+@media (max-width: 900px) {
+  .table-hscroll-footer {
+    display: none !important;
+  }
+  body.has-table-hscroll .content {
+    padding-bottom: 1.35rem;
+  }
 }
 
 .data-table {
@@ -986,7 +1068,7 @@ button, input, select, textarea { font: inherit; }
 .contagem-cats {
   display: flex;
   gap: 0.45rem;
-  overflow-x: scroll;
+  overflow-x: auto;
   padding-bottom: 0.75rem;
   margin-bottom: 0.25rem;
   -webkit-overflow-scrolling: touch;
@@ -995,7 +1077,6 @@ button, input, select, textarea { font: inherit; }
 }
 .contagem-cats::-webkit-scrollbar {
   height: 10px;
-  display: block;
 }
 .contagem-cats::-webkit-scrollbar-track {
   background: #e2e8f0;
