@@ -3,195 +3,437 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Cronograma físico-financeiro e controle de gastos da obra" />
-    <meta name="theme-color" content="#d97706" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <title>Obra 103 — Cronograma & Controle de Gastos</title>
-    <link rel="stylesheet" href="/style.css" />
-    <script src="/config.js?v=6"></script>
+    <meta name="description" content="Estoque multi-loja e cotação de fornecedores — Aquela Parmê" />
+    <meta name="theme-color" content="#c2410c" />
+    <title>Estoque & Cotação — Aquela Parmê</title>
+    <link rel="stylesheet" href="style.css" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
-    <script src="/auth.js?v=3"></script>
-    <script src="/script.js?v=5" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="config.js"></script>
+    <script src="seed-data.js"></script>
+    <script src="script.js" defer></script>
   </head>
   <body>
-    <div class="auth-loading" id="auth-loading">
-      <div class="auth-spinner"></div>
-      <p>Carregando…</p>
-    </div>
-
-    <div class="login-screen hidden" id="login-screen">
+    <!-- LOGIN -->
+    <div class="login-screen" id="login-screen">
       <div class="login-card">
-        <p class="login-eyebrow">Gestão de Obra</p>
-        <h1 class="login-title">🏗️ Gestor de Obra</h1>
-        <p class="login-text">Entre com Google para sincronizar cronograma e gastos entre celular e computador.</p>
-        <button class="btn btn-google" id="btn-google-login" type="button">
-          <span class="btn-google-icon" aria-hidden="true">G</span>
-          Entrar com Google
+        <p class="login-eyebrow">Aquela Parmê</p>
+        <h1>Estoque & Cotação</h1>
+        <p class="login-sub">Acesso por perfil — loja, fornecedor ou administração</p>
+        <form id="login-form">
+          <label class="field">
+            <span>Usuário</span>
+            <select id="login-user" required></select>
+          </label>
+          <label class="field">
+            <span>Senha</span>
+            <input autocomplete="current-password" id="login-pass" required type="password" />
+          </label>
+          <p class="login-error hidden" id="login-error">Usuário ou senha inválidos.</p>
+          <button class="btn btn-block" type="submit">Entrar</button>
+        </form>
+        <p class="login-hint">Admin: <code>admin</code> / <code>Senha@123</code></p>
+        <button class="btn btn-ghost btn-block" id="btn-login-reseed" type="button">
+          Recarregar dados da planilha neste aparelho
         </button>
-        <p class="login-hint">Seus dados ficam protegidos na sua conta.</p>
-        <p class="login-debug" id="login-debug"></p>
-        <p class="login-error hidden" id="login-error">
-          URL do Supabase incorreta ou projeto inacessível. Copie a URL em <strong>Project Settings → API</strong> e atualize o <code>config.js</code>.
-        </p>
       </div>
     </div>
 
-    <div class="app hidden" id="app-root">
-      <aside class="sidebar">
+    <div class="app hidden" id="app">
+      <aside class="sidebar" id="sidebar">
         <div class="brand">
-          <span class="brand-icon">🏗️</span>
+          <span class="brand-icon">📦</span>
           <div>
-            <p class="brand-eyebrow">Gestão de Obra</p>
-            <h1 id="sidebar-title">Obra 103</h1>
+            <p class="brand-eyebrow">Aquela Parmê</p>
+            <h1>Estoque & Cotação</h1>
           </div>
         </div>
-        <nav class="nav" aria-label="Navegação principal">
-          <button class="nav-btn active" data-view="dashboard" type="button">
-            <span class="nav-icon">📊</span> Dashboard
-          </button>
-          <button class="nav-btn" data-view="etapas" type="button">
-            <span class="nav-icon">📋</span> Etapas
-          </button>
-          <button class="nav-btn" data-view="itens" type="button">
-            <span class="nav-icon">📦</span> Itens & Compras
-          </button>
-          <button class="nav-btn" data-view="dependencias" type="button">
-            <span class="nav-icon">🔗</span> Dependências
-          </button>
-          <button class="nav-btn" data-view="gastos" type="button">
-            <span class="nav-icon">💰</span> Gastos
-          </button>
-          <button class="nav-btn" data-view="cronograma" type="button">
-            <span class="nav-icon">📅</span> Cronograma
-          </button>
-          <button class="nav-btn" data-view="relatorios" type="button">
-            <span class="nav-icon">📈</span> Relatórios
-          </button>
-        </nav>
+        <div class="session-box">
+          <p class="session-role" id="session-role">—</p>
+          <p class="session-name" id="session-name">—</p>
+        </div>
+        <nav class="nav" id="nav" aria-label="Navegação"></nav>
         <div class="sidebar-footer">
-          <div class="user-chip hidden" id="user-chip"></div>
-          <button class="btn btn-ghost btn-block hidden" id="btn-logout" type="button">Sair da conta</button>
-          <button class="btn btn-ghost btn-block" id="btn-tutorial" type="button">📖 Ver tutorial</button>
-          <button class="btn btn-ghost btn-block" id="btn-export" type="button">Exportar backup</button>
-          <label class="btn btn-ghost btn-block file-label">
-            Importar backup
-            <input accept=".json" hidden id="import-file" type="file" />
-          </label>
+          <button class="btn btn-ghost btn-block hidden" id="btn-config" type="button" title="Configurações">
+            ⚙ Configurações
+          </button>
+          <button class="btn btn-ghost btn-block" id="btn-logout" type="button">Sair</button>
         </div>
       </aside>
 
-      <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
-
       <div class="main-wrap">
         <header class="topbar">
-          <button aria-label="Abrir menu" class="menu-toggle" id="menu-toggle" type="button">☰</button>
+          <button aria-label="Menu" class="menu-toggle" id="menu-toggle" type="button">☰</button>
           <div class="topbar-info">
             <h2 id="view-title">Dashboard</h2>
-            <p id="view-subtitle">Visão geral da obra</p>
+            <p id="view-subtitle">Visão geral</p>
           </div>
           <div class="topbar-actions">
-            <button class="btn btn-scan-top" id="btn-scan-top" type="button" aria-label="Escanear nota fiscal">
-              <span class="btn-icon-only" aria-hidden="true">📷</span>
-              <span class="btn-label">Escanear NF</span>
-            </button>
-            <button class="btn btn-ghost" id="btn-projeto" type="button" aria-label="Configurações do projeto">
-              <span class="btn-icon-only" aria-hidden="true">⚙️</span>
-              <span class="btn-label">Projeto</span>
-            </button>
+            <span class="sync-badge" id="sync-badge" title="Status da nuvem">● Local</span>
             <span class="save-indicator" id="save-indicator">Salvo</span>
           </div>
         </header>
 
         <main class="content">
           <!-- DASHBOARD -->
-          <section class="view active" id="view-dashboard">
-            <div class="kpi-grid">
-              <article class="kpi-card">
-                <p class="kpi-label">Orçamento previsto</p>
-                <p class="kpi-value" id="kpi-orcamento">R$ 0,00</p>
-              </article>
-              <article class="kpi-card">
-                <p class="kpi-label">Gasto realizado</p>
-                <p class="kpi-value kpi-danger" id="kpi-gasto">R$ 0,00</p>
-              </article>
-              <article class="kpi-card">
-                <p class="kpi-label">Saldo disponível</p>
-                <p class="kpi-value kpi-success" id="kpi-saldo">R$ 0,00</p>
-              </article>
-              <article class="kpi-card">
-                <p class="kpi-label">Avanço físico</p>
-                <p class="kpi-value" id="kpi-avanco">0%</p>
-                <div class="progress-bar"><div class="progress-fill" id="kpi-avanco-bar"></div></div>
-              </article>
-              <article class="kpi-card">
-                <p class="kpi-label">Execução financeira</p>
-                <p class="kpi-value" id="kpi-financeiro">0%</p>
-                <div class="progress-bar"><div class="progress-fill progress-fill-alt" id="kpi-financeiro-bar"></div></div>
-              </article>
-              <article class="kpi-card">
-                <p class="kpi-label">Prazo da obra</p>
-                <p class="kpi-value kpi-sm" id="kpi-prazo">—</p>
-              </article>
-            </div>
-
+          <section class="view" id="view-dashboard">
+            <div class="alert-stack" id="dash-alertas"></div>
+            <div class="kpi-grid" id="dash-kpis"></div>
             <div class="dashboard-grid">
               <article class="panel">
-                <div class="panel-header">
-                  <h3>Etapas em andamento</h3>
-                </div>
-                <div class="panel-body" id="dashboard-etapas"></div>
+                <div class="panel-header"><h3>Abaixo do mínimo</h3></div>
+                <div class="panel-body" id="dash-baixo-minimo"></div>
               </article>
               <article class="panel">
-                <div class="panel-header">
-                  <h3>Alertas</h3>
-                </div>
-                <div class="panel-body" id="dashboard-alertas"></div>
+                <div class="panel-header"><h3>Cotações pendentes</h3></div>
+                <div class="panel-body" id="dash-cotacoes"></div>
               </article>
               <article class="panel panel-wide">
-                <div class="panel-header">
-                  <h3>Últimos gastos</h3>
-                  <button class="btn btn-sm" data-goto="gastos" type="button">Ver todos</button>
-                </div>
-                <div class="panel-body table-wrap" id="dashboard-gastos"></div>
+                <div class="panel-header"><h3>Produção — a fazer</h3></div>
+                <div class="panel-body" id="dash-producao"></div>
               </article>
             </div>
           </section>
 
-          <!-- ETAPAS -->
-          <section class="view" id="view-etapas">
-            <div class="view-toolbar">
-              <p class="toolbar-hint">Defina as fases da obra, prazos e orçamento previsto de cada etapa.</p>
-              <button class="btn" id="btn-add-etapa" type="button">+ Nova etapa</button>
+          <!-- CONTAGEM (loja) — domingo / mobile item a item + listagem -->
+          <section class="view" id="view-contagem">
+            <div class="alert-stack" id="contagem-alerta-minimo"></div>
+
+            <div class="contagem-start" id="contagem-start-panel">
+              <p class="contagem-start-eyebrow" id="contagem-loja-nome">Sua loja</p>
+              <h3>Contagem de estoque</h3>
+              <p class="toolbar-hint">
+                No celular: um item por vez (OK → próximo). Na listagem você revisa tudo.
+                Ao iniciar, os saldos da loja são zerados para contar do zero.
+              </p>
+              <select class="hidden" id="filter-contagem-loja" aria-label="Loja da contagem"></select>
+              <button class="btn btn-block btn-lg" id="btn-iniciar-contagem" type="button">Iniciar contagem</button>
+              <button class="btn btn-ghost btn-block" id="btn-continuar-contagem" type="button">Continuar contagem</button>
+              <button class="btn btn-ghost btn-block" id="btn-ver-lista-contagem" type="button">Ver listagem / revisar</button>
             </div>
+
+            <div class="hidden" id="contagem-flow-panel">
+              <div class="contagem-header">
+                <div>
+                  <p class="contagem-loja" id="contagem-flow-titulo">Contagem</p>
+                  <p class="contagem-progress" id="contagem-flow-progress">0 / 0</p>
+                </div>
+                <div class="contagem-progress-bar"><div id="contagem-flow-progress-fill"></div></div>
+              </div>
+              <div class="contagem-item-card" id="contagem-item-card"></div>
+              <p class="qty-error hidden" id="contagem-flow-erro" role="alert"></p>
+              <div class="contagem-flow-actions">
+                <button class="btn btn-ghost" id="btn-contagem-pular" type="button">Pular (0)</button>
+                <button class="btn btn-ghost" id="btn-contagem-ir-lista" type="button">Listagem</button>
+                <button class="btn btn-ghost" id="btn-contagem-sair-fluxo" type="button">Sair</button>
+              </div>
+            </div>
+
+            <div class="hidden" id="contagem-lista-panel">
+              <div class="contagem-header">
+                <div>
+                  <p class="contagem-loja" id="contagem-lista-titulo">Listagem</p>
+                  <p class="contagem-progress" id="contagem-progress">0 / 0 contados</p>
+                </div>
+                <div class="contagem-progress-bar"><div id="contagem-progress-fill"></div></div>
+              </div>
+              <div class="view-toolbar contagem-toolbar">
+                <div class="filters">
+                  <input id="filter-contagem-busca" inputmode="search" placeholder="Buscar produto…" type="search" />
+                  <select id="filter-contagem-categoria">
+                    <option value="">Todas as categorias</option>
+                  </select>
+                  <select id="filter-contagem-status">
+                    <option value="pendentes">Pendentes</option>
+                    <option value="todos">Todos</option>
+                    <option value="contados">Já contados</option>
+                    <option value="baixo">Abaixo do mínimo</option>
+                  </select>
+                  <label class="check-inline filters-check">
+                    <input id="filter-contagem-ocultos" type="checkbox" />
+                    Incluir itens ocultos
+                  </label>
+                </div>
+                <div class="toolbar-actions">
+                  <button class="btn" id="btn-contagem-voltar-fluxo" type="button">Item a item</button>
+                  <button class="btn btn-ghost" id="btn-contagem-inicio" type="button">Início</button>
+                </div>
+              </div>
+              <div class="contagem-cats" id="contagem-cats"></div>
+              <div class="contagem-list" id="contagem-list"></div>
+            </div>
+          </section>
+
+          <!-- ESTOQUE -->
+          <section class="view" id="view-estoque">
+            <div class="alert-stack" id="estoque-alerta-minimo"></div>
+            <div class="view-toolbar">
+              <div class="filters">
+                <select id="filter-loja"></select>
+                <select id="filter-categoria">
+                  <option value="">Todas as categorias</option>
+                </select>
+                <input id="filter-estoque-busca" placeholder="Buscar produto…" type="search" />
+                <label class="check-inline filters-check">
+                  <input id="filter-so-baixo" type="checkbox" />
+                  Só abaixo do mínimo
+                </label>
+                <label class="check-inline filters-check">
+                  <input id="filter-estoque-ocultos" type="checkbox" />
+                  Incluir itens ocultos
+                </label>
+                <label class="check-inline filters-check hidden" id="wrap-estoque-inativos">
+                  <input id="filter-estoque-inativos" type="checkbox" />
+                  Incluir inativos
+                </label>
+              </div>
+              <button class="btn hidden" id="btn-estoque-add-produto" type="button">+ Produto</button>
+            </div>
+            <p class="toolbar-hint hidden" id="estoque-minimo-hint">
+              Mínimo lilás = fórmula automática. Clique em <strong>Fórmula</strong> para editar ou fixe um valor manual no campo Mínimo.
+            </p>
             <div class="table-wrap">
-              <table class="data-table" id="table-etapas">
+              <table class="data-table" id="table-estoque">
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>Etapa</th>
-                    <th>Início</th>
-                    <th>Fim previsto</th>
-                    <th>Fim real</th>
-                    <th>Orçamento</th>
-                    <th>Gasto</th>
-                    <th>Desvio</th>
-                    <th>% físico</th>
-                    <th>Dependências</th>
+                    <th>Produto</th>
+                    <th>Cat.</th>
+                    <th>UN</th>
+                    <th>Saldo</th>
+                    <th>Mínimo</th>
+                    <th>Envio</th>
+                    <th>Val. Lote 1</th>
+                    <th>Val. Lote 2</th>
+                    <th>Val. Lote 3</th>
+                    <th>OK Entreg.</th>
+                    <th>OK Loja</th>
                     <th>Status</th>
-                    <th></th>
+                    <th class="col-prod-acoes hidden">Ações</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ENVIO -->
+          <section class="view" id="view-envio-sexta">
+            <div class="view-toolbar no-print">
+              <div class="filters">
+                <select id="filter-envio-loja" aria-label="Loja de destino"></select>
+                <label class="field-inline">
+                  <span>Data (sexta)</span>
+                  <input id="filter-envio-data" type="date" />
+                </label>
+                <label class="check-inline filters-check">
+                  <input checked id="filter-envio-so-qty" type="checkbox" />
+                  Só itens com envio &gt; 0
+                </label>
+                <label class="check-inline filters-check">
+                  <input id="filter-envio-sugerir" type="checkbox" />
+                  Sugerir necessidade (mín − saldo)
+                </label>
+              </div>
+              <div class="toolbar-actions">
+                <button class="btn btn-ghost" id="btn-envio-limpar-sigs" type="button">Limpar assinaturas</button>
+                <button class="btn btn-ghost" id="btn-envio-print" type="button">Imprimir</button>
+                <button class="btn" id="btn-envio-pdf" type="button">Exportar PDF</button>
+              </div>
+            </div>
+            <p class="toolbar-hint no-print" id="envio-hint">
+              Listagem de envio por loja — preencha as assinaturas na tela ou no papel impresso.
+            </p>
+            <article class="envio-sheet" id="envio-print-sheet">
+              <header class="envio-sheet-header">
+                <div>
+                  <p class="envio-brand">Aquela Parmê</p>
+                  <h3 id="envio-sheet-title">Envio</h3>
+                  <p class="envio-meta" id="envio-sheet-meta">—</p>
+                </div>
+                <div class="envio-sheet-date" id="envio-sheet-date">—</div>
+              </header>
+              <div class="table-wrap">
+                <table class="data-table envio-table" id="table-envio-sexta">
+                  <thead>
+                    <tr>
+                      <th class="col-check">☑</th>
+                      <th>Produto</th>
+                      <th>Cat.</th>
+                      <th>UN</th>
+                      <th>Saldo</th>
+                      <th>Qtde envio</th>
+                      <th>Obs.</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="envio-sigs">
+                <div class="envio-sig-block">
+                  <p class="envio-sig-label">Assinatura do entregador</p>
+                  <canvas class="sig-canvas" id="sig-entregador" height="120" width="420"></canvas>
+                  <div class="envio-sig-lines">
+                    <label>Nome <input id="sig-entregador-nome" type="text" /></label>
+                    <label>Data <input id="sig-entregador-data" type="date" /></label>
+                  </div>
+                  <button class="btn btn-ghost btn-sm no-print" data-clear-sig="entregador" type="button">Limpar</button>
+                </div>
+                <div class="envio-sig-block">
+                  <p class="envio-sig-label">Assinatura de conferência da loja</p>
+                  <canvas class="sig-canvas" id="sig-loja" height="120" width="420"></canvas>
+                  <div class="envio-sig-lines">
+                    <label>Nome <input id="sig-loja-nome" type="text" /></label>
+                    <label>Data <input id="sig-loja-data" type="date" /></label>
+                  </div>
+                  <button class="btn btn-ghost btn-sm no-print" data-clear-sig="loja" type="button">Limpar</button>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <!-- EMERGÊNCIA -->
+          <section class="view" id="view-emergencia">
+            <div class="view-toolbar no-print">
+              <div class="filters">
+                <select id="filter-emergencia-status" aria-label="Status">
+                  <option value="abertas">Abertas (pendente + enviada)</option>
+                  <option value="pendente">Pendentes</option>
+                  <option value="enviada">Enviadas</option>
+                  <option value="atendida">Atendidas</option>
+                  <option value="cancelada">Canceladas</option>
+                  <option value="todas">Todas</option>
+                </select>
+              </div>
+              <p class="toolbar-hint" id="emergencia-hint">Solicitações urgentes fora do envio de sexta.</p>
+            </div>
+
+            <article class="panel emergencia-form-panel no-print" id="emergencia-form-wrap">
+              <div class="panel-header"><h3>Nova solicitação de emergência</h3></div>
+              <div class="panel-body">
+                <div class="emergencia-form-grid">
+                  <label class="field hidden" id="emergencia-loja-field">
+                    <span>Loja solicitante</span>
+                    <select id="emergencia-loja" aria-label="Loja solicitante"></select>
+                  </label>
+                  <label class="field">
+                    <span>Data desejada</span>
+                    <input id="emergencia-data" type="date" />
+                  </label>
+                  <label class="field">
+                    <span>Observação (opcional)</span>
+                    <input id="emergencia-obs" maxlength="200" placeholder="Ex.: acabou molho, entrega hoje" type="text" />
+                  </label>
+                </div>
+                <label class="field">
+                  <span>Buscar produto</span>
+                  <input id="emergencia-busca-produto" autocomplete="off" placeholder="Digite o nome…" type="search" />
+                </label>
+                <div class="sugestoes-box hidden" id="emergencia-sugestoes"></div>
+                <div class="emergencia-draft" id="emergencia-draft-itens"></div>
+                <button class="btn btn-block" id="btn-emergencia-enviar" type="button">Enviar solicitação ao Central</button>
+              </div>
+            </article>
+
+            <div class="emergencia-lista" id="emergencia-lista"></div>
+
+            <article class="envio-sheet emergencia-print-sheet hidden" id="emergencia-print-sheet">
+              <header class="envio-sheet-header">
+                <div>
+                  <p class="envio-brand">Aquela Parmê</p>
+                  <h3 id="emergencia-sheet-title">Emergência</h3>
+                  <p class="envio-meta" id="emergencia-sheet-meta">—</p>
+                </div>
+                <div class="envio-sheet-date" id="emergencia-sheet-date">—</div>
+              </header>
+              <div class="table-wrap">
+                <table class="data-table" id="table-emergencia-print">
+                  <thead>
+                    <tr>
+                      <th>Produto</th>
+                      <th>UN</th>
+                      <th>Qtde</th>
+                      <th>Saldo Central</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <p class="toolbar-hint" style="margin-top:1rem">Obs.: <span id="emergencia-sheet-obs">—</span></p>
+            </article>
+          </section>
+
+          <!-- PRODUÇÃO -->
+          <section class="view" id="view-producao">
+            <div class="view-toolbar no-print">
+              <p class="toolbar-hint">Lista automática da fábrica: total a produzir = necessidade das lojas (estoque mínimo − atual). Lançe o que já foi produzido.</p>
+              <label class="check-inline">
+                <input checked id="filter-so-produzir" type="checkbox" />
+                Só itens PRODUZIR
+              </label>
+              <div class="toolbar-actions">
+                <button class="btn btn-ghost" id="btn-producao-print" type="button">Imprimir</button>
+                <button class="btn" id="btn-producao-pdf" type="button">Exportar PDF</button>
+              </div>
+            </div>
+            <div class="table-wrap no-print">
+              <table class="data-table" id="table-producao">
+                <thead>
+                  <tr>
+                    <th>Produto</th>
+                    <th>UN</th>
+                    <th>Lista</th>
+                    <th>Total a produzir</th>
+                    <th>Baldes</th>
+                    <th>Já produzido</th>
+                    <th>Falta</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <article class="pedido-sheet hidden" id="producao-print-sheet" aria-hidden="true">
+              <header class="pedido-print-header">
+                <div>
+                  <p class="pedido-eyebrow">Aquela Parmê</p>
+                  <h2>Produção — Fábrica</h2>
+                  <p id="producao-print-meta" class="contagem-meta"></p>
+                </div>
+              </header>
+              <div id="producao-print-body"></div>
+            </article>
+          </section>
+
+          <!-- COTAÇÃO (fornecedor ou admin) -->
+          <section class="view" id="view-cotacao">
+            <div class="view-toolbar">
+              <div class="filters">
+                <select id="filter-fornecedor"></select>
+                <select id="filter-cot-categoria">
+                  <option value="">Todas as categorias</option>
+                </select>
+                <input id="filter-cot-busca" placeholder="Buscar produto…" type="search" />
+              </div>
+              <p class="toolbar-hint" id="cotacao-hint">Preencha preço e status da sua cotação.</p>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table" id="table-cotacao">
+                <thead>
+                  <tr>
+                    <th>Produto</th>
+                    <th>Cat.</th>
+                    <th>UN</th>
+                    <th>Qtde</th>
+                    <th>Preço unit.</th>
+                    <th>Total</th>
+                    <th>Observações</th>
+                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
                 <tfoot>
                   <tr class="totals-row">
-                    <td colspan="5"><strong>Totais</strong></td>
-                    <td id="etapas-total-orcamento"></td>
-                    <td id="etapas-total-gasto"></td>
-                    <td id="etapas-total-desvio"></td>
-                    <td id="etapas-total-avanco"></td>
-                    <td></td>
+                    <td colspan="5"><strong>Total cotado (OK)</strong></td>
+                    <td id="cotacao-total"></td>
                     <td colspan="2"></td>
                   </tr>
                 </tfoot>
@@ -199,132 +441,268 @@
             </div>
           </section>
 
-          <!-- ITENS & COMPRAS -->
-          <section class="view" id="view-itens">
-            <div class="view-toolbar">
-              <p class="toolbar-hint">Materiais, equipamentos, utensílios e contratações — compare valor previsto (orçado) com consolidado (gastos pagos).</p>
-              <button class="btn" id="btn-add-item" type="button">+ Novo item</button>
-            </div>
-            <div class="itens-resumo" id="itens-resumo"></div>
-            <div class="table-wrap">
-              <table class="data-table" id="table-itens">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Categoria</th>
-                    <th>Etapa vinculada</th>
-                    <th>Previsto</th>
-                    <th>Consolidado</th>
-                    <th>Desvio</th>
-                    <th>Pagamento</th>
-                    <th>Status</th>
-                    <th>Fornecedor</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-                <tfoot>
-                  <tr class="totals-row">
-                    <td colspan="3"><strong>Totais</strong></td>
-                    <td id="itens-total-previsto"></td>
-                    <td id="itens-total-consolidado"></td>
-                    <td id="itens-total-desvio"></td>
-                    <td colspan="4"></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </section>
-
-          <!-- DEPENDÊNCIAS -->
-          <section class="view" id="view-dependencias">
-            <div class="view-toolbar">
-              <p class="toolbar-hint">Cadeia de pré-requisitos — etapas só podem iniciar quando dependências estiverem concluídas.</p>
-            </div>
-            <div class="dep-grid" id="dep-cards"></div>
-          </section>
-
-          <!-- GASTOS -->
-          <section class="view" id="view-gastos">
-            <div class="view-toolbar view-toolbar-gastos">
+          <!-- RESULTADO -->
+          <section class="view" id="view-resultado">
+            <div class="view-toolbar no-print">
+              <p class="toolbar-hint">Comparativo — vencedor = menor preço OK. Emita pedido só dos vencedores com qtde &gt; 0.</p>
               <div class="filters">
-                <select id="filter-etapa">
-                  <option value="">Todas as etapas</option>
+                <select id="filter-res-fornecedor" aria-label="Filtrar por fornecedor">
+                  <option value="">Todos os fornecedores</option>
                 </select>
-                <select id="filter-tipo">
-                  <option value="">Todos os tipos</option>
-                  <option value="material_obra">Materiais de obra</option>
-                  <option value="equipamento">Equipamentos</option>
-                  <option value="utensilio">Utensílios</option>
-                  <option value="contratacao">Contratações</option>
-                  <option value="mao_de_obra">Mão de obra</option>
-                </select>
-                <input id="filter-busca" placeholder="Buscar fornecedor ou descrição…" type="search" />
+                <input id="filter-res-busca" placeholder="Buscar produto…" type="search" />
+                <label class="check-inline filters-check">
+                  <input id="filter-res-so-vencedor" type="checkbox" checked />
+                  Só com vencedor e qtde &gt; 0
+                </label>
               </div>
-              <div class="toolbar-actions">
-              <button class="btn" id="btn-add-gasto" type="button">+ Novo gasto</button>
-              <button class="btn btn-scan" id="btn-scan-gastos" type="button">📷 Escanear comprovante</button>
-              </div>
+              <button class="btn btn-ghost" id="btn-pedido-compra-print" type="button">Imprimir pedido</button>
+              <button class="btn" id="btn-pedido-compra" type="button">Exportar PDF pedido</button>
             </div>
-            <div class="table-wrap">
-              <table class="data-table" id="table-gastos">
+            <div class="kpi-grid no-print" id="resultado-kpis"></div>
+            <div class="table-wrap no-print">
+              <table class="data-table" id="table-resultado">
                 <thead>
                   <tr>
-                    <th>Data</th>
-                    <th>NF</th>
-                    <th>Fornecedor</th>
-                    <th>Descrição</th>
-                    <th>Etapa</th>
-                    <th>Tipo</th>
-                    <th>Valor</th>
-                    <th></th>
+                    <th>Produto</th>
+                    <th>Qtde</th>
+                    <th id="th-forn-heads"></th>
+                    <th>Vencedor</th>
+                    <th>Menor R$</th>
+                    <th>Total compra</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
                 <tfoot>
                   <tr class="totals-row">
-                    <td colspan="6"><strong>Total filtrado</strong></td>
-                    <td id="gastos-total"></td>
+                    <td colspan="4"><strong>Total (filtro)</strong></td>
                     <td></td>
+                    <td id="resultado-total"></td>
                   </tr>
                 </tfoot>
               </table>
             </div>
+
+            <article class="pedido-sheet hidden" id="pedido-print-sheet" aria-hidden="true">
+              <header class="pedido-print-header">
+                <div>
+                  <p class="pedido-eyebrow">Aquela Parmê</p>
+                  <h2 id="pedido-print-titulo">Pedido de compra</h2>
+                  <p id="pedido-print-meta" class="contagem-meta"></p>
+                </div>
+              </header>
+              <div id="pedido-print-body"></div>
+              <footer class="pedido-print-footer">
+                <div>
+                  <p>Assinatura / carimbo comprador</p>
+                  <div class="pedido-sign-line"></div>
+                </div>
+                <div>
+                  <p>Assinatura / carimbo fornecedor</p>
+                  <div class="pedido-sign-line"></div>
+                </div>
+              </footer>
+            </article>
           </section>
 
-          <!-- CRONOGRAMA -->
-          <section class="view" id="view-cronograma">
-            <div class="view-toolbar">
-              <p class="toolbar-hint">Cronograma físico — barras azuis = previsto, verdes = realizado.</p>
-              <div class="legend">
-                <span class="legend-item"><span class="dot dot-prev"></span> Previsto</span>
-                <span class="legend-item"><span class="dot dot-real"></span> Realizado</span>
-                <span class="legend-item"><span class="dot dot-atraso"></span> Atraso</span>
+          <!-- VALORES (estoque × cotação + histórico/inflação) -->
+          <section class="view" id="view-valores">
+            <div class="config-tabs no-print" role="tablist" aria-label="Valores">
+              <button class="config-tab active" data-valores-tab="estoque" type="button">Estoque R$</button>
+              <button class="config-tab" data-valores-tab="historico" type="button">Histórico de preços</button>
+              <button class="config-tab" data-valores-tab="inflacao" type="button">Inflação</button>
+            </div>
+
+            <div data-valores-panel="estoque">
+              <div class="view-toolbar no-print">
+                <p class="toolbar-hint">Valor = saldo × preço de referência (menor cotação OK; se não houver, menor preço cadastrado).</p>
+                <div class="filters">
+                  <select id="filter-valores-loja">
+                    <option value="">Todas as lojas</option>
+                  </select>
+                  <input id="filter-valores-busca" placeholder="Buscar produto…" type="search" />
+                  <label class="check-inline filters-check">
+                    <input id="filter-valores-so-saldo" type="checkbox" checked />
+                    Só com saldo
+                  </label>
+                </div>
+                <button class="btn" id="btn-snapshot-precos" type="button">Salvar preços atuais no histórico</button>
+              </div>
+              <div class="kpi-grid" id="valores-kpis"></div>
+              <div class="table-wrap" style="margin-bottom:1.25rem">
+                <table class="data-table" id="table-valores-lojas">
+                  <thead>
+                    <tr>
+                      <th>Loja</th>
+                      <th>Itens c/ saldo</th>
+                      <th>Sem preço</th>
+                      <th>Valor do estoque</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                  <tfoot>
+                    <tr class="totals-row">
+                      <td colspan="3"><strong>Total geral</strong></td>
+                      <td id="valores-total-geral"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <div class="panel-header" style="margin-bottom:0.5rem"><h3 id="valores-detalhe-titulo">Detalhe por produto</h3></div>
+              <div class="table-wrap">
+                <table class="data-table" id="table-valores-itens">
+                  <thead>
+                    <tr>
+                      <th>Produto</th>
+                      <th>Cat.</th>
+                      <th>UN</th>
+                      <th>Saldo</th>
+                      <th>Preço ref.</th>
+                      <th>Fonte</th>
+                      <th>Valor</th>
+                      <th>Δ vs base</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                  <tfoot>
+                    <tr class="totals-row">
+                      <td colspan="6"><strong>Subtotal (filtro)</strong></td>
+                      <td id="valores-subtotal"></td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             </div>
-            <div class="gantt-wrap">
-              <div class="gantt" id="gantt"></div>
+
+            <div class="hidden" data-valores-panel="historico">
+              <div class="view-toolbar">
+                <p class="toolbar-hint">Cada snapshot guarda os preços de referência do dia para comparar alta/baixa depois.</p>
+                <button class="btn" id="btn-snapshot-precos-2" type="button">Salvar snapshot agora</button>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table" id="table-historico-precos">
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Label</th>
+                      <th>Itens</th>
+                      <th>Valor estoque (na época)</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="hidden" data-valores-panel="inflacao">
+              <div class="view-toolbar">
+                <p class="toolbar-hint">Índice = (preço atual ÷ preço da base − 1) × 100. Use para repassar aumento/baixa na precificação.</p>
+                <div class="filters">
+                  <label class="field-inline">
+                    <span>Base de comparação</span>
+                    <select id="filter-inflacao-base"></select>
+                  </label>
+                </div>
+              </div>
+              <div class="kpi-grid" id="inflacao-kpis"></div>
+              <div class="table-wrap">
+                <table class="data-table" id="table-inflacao">
+                  <thead>
+                    <tr>
+                      <th>Produto</th>
+                      <th>Preço base</th>
+                      <th>Preço atual</th>
+                      <th>Δ R$</th>
+                      <th>Índice %</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
             </div>
           </section>
 
-          <!-- RELATÓRIOS -->
-          <section class="view" id="view-relatorios">
-            <div class="charts-grid">
-              <article class="panel">
-                <div class="panel-header"><h3>Previsto × Realizado por etapa</h3></div>
-                <div class="panel-body chart-body"><canvas id="chart-etapas"></canvas></div>
-              </article>
-              <article class="panel">
-                <div class="panel-header"><h3>Gastos por tipo</h3></div>
-                <div class="panel-body chart-body"><canvas id="chart-tipos"></canvas></div>
-              </article>
-              <article class="panel panel-wide">
-                <div class="panel-header"><h3>Fluxo de caixa mensal</h3></div>
-                <div class="panel-body chart-body"><canvas id="chart-mensal"></canvas></div>
-              </article>
-              <article class="panel panel-wide">
-                <div class="panel-header"><h3>Curva físico-financeira</h3></div>
-                <div class="panel-body chart-body"><canvas id="chart-curva"></canvas></div>
+          <!-- FORNECEDORES (admin) -->
+          <section class="view" id="view-fornecedores">
+            <div class="view-toolbar">
+              <p class="toolbar-hint">Cadastre fornecedores — gera login e cotação automaticamente.</p>
+              <button class="btn" id="btn-add-fornecedor" type="button">+ Novo fornecedor</button>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table" id="table-fornecedores">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>Login</th>
+                    <th>Senha atual</th>
+                    <th>Ativo</th>
+                    <th>Contato</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- CONFIGURAÇÕES (admin) — usuários + nuvem -->
+          <section class="view" id="view-configuracoes">
+            <div class="config-tabs" role="tablist" aria-label="Configurações">
+              <button class="config-tab active" data-config-tab="usuarios" role="tab" type="button">Usuários</button>
+              <button class="config-tab" data-config-tab="nuvem" role="tab" type="button">Nuvem</button>
+            </div>
+
+            <div class="config-panel" id="config-panel-usuarios" data-config-panel="usuarios">
+              <div class="view-toolbar">
+                <p class="toolbar-hint">Senhas de lojas e fornecedores. Cada perfil só acessa seus dados.</p>
+                <button class="btn btn-ghost" id="btn-reimport-seed" type="button">Atualizar estoque/cotação da planilha</button>
+              </div>
+              <p class="field-hint" style="margin:0 0 1rem" id="seed-version-hint"></p>
+              <div class="table-wrap">
+                <table class="data-table" id="table-usuarios">
+                  <thead>
+                    <tr>
+                      <th>Usuário</th>
+                      <th>Nome</th>
+                      <th>Perfil</th>
+                      <th>Vínculo</th>
+                      <th>Nova senha</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="config-panel hidden" id="config-panel-nuvem" data-config-panel="nuvem">
+              <div class="view-toolbar">
+                <p class="toolbar-hint">Sincroniza estoque e cotações entre todos os aparelhos (Supabase gratuito).</p>
+              </div>
+              <article class="panel" style="max-width:640px">
+                <div class="panel-header"><h3>Configuração da nuvem</h3></div>
+                <div class="panel-body">
+                  <p class="field-hint" style="margin-bottom:1rem">
+                    1. Crie projeto em <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a> (grátis)<br />
+                    2. Em SQL Editor, cole e rode o arquivo <code>supabase-setup.sql</code><br />
+                    3. Em Project Settings → API, copie URL e anon key abaixo
+                  </p>
+                  <label class="field">
+                    <span>Project URL</span>
+                    <input id="cloud-url" placeholder="https://xxxxx.supabase.co" type="url" />
+                  </label>
+                  <label class="field">
+                    <span>anon / public key</span>
+                    <textarea id="cloud-key" placeholder="eyJhbGciOi..." rows="3"></textarea>
+                  </label>
+                  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">
+                    <button class="btn" id="btn-cloud-save" type="button">Salvar e conectar</button>
+                    <button class="btn btn-ghost" id="btn-cloud-push" type="button">Enviar dados locais → nuvem</button>
+                    <button class="btn btn-ghost" id="btn-cloud-pull" type="button">Baixar nuvem → este aparelho</button>
+                  </div>
+                  <p class="field-hint" id="cloud-status" style="margin-top:1rem">Status: não configurado</p>
+                </div>
               </article>
             </div>
           </section>
@@ -332,7 +710,6 @@
       </div>
     </div>
 
-    <!-- Modal genérico -->
     <dialog class="modal" id="modal">
       <form class="modal-form" id="modal-form" method="dialog">
         <div class="modal-header">
@@ -345,135 +722,6 @@
           <button class="btn" id="modal-save" type="submit">Salvar</button>
         </div>
       </form>
-    </dialog>
-
-    <!-- Modal projeto -->
-    <dialog class="modal" id="modal-projeto">
-      <form class="modal-form" id="form-projeto" method="dialog">
-        <div class="modal-header">
-          <h3>Configurações do projeto</h3>
-          <button aria-label="Fechar" class="btn-icon" id="modal-projeto-close" type="button">✕</button>
-        </div>
-        <div class="modal-body">
-          <label class="field">
-            <span>Nome da obra</span>
-            <input id="proj-nome" required type="text" />
-          </label>
-          <label class="field">
-            <span>Endereço</span>
-            <input id="proj-endereco" type="text" />
-          </label>
-          <label class="field">
-            <span>Data de início</span>
-            <input id="proj-inicio" type="date" />
-          </label>
-          <label class="field">
-            <span>Data prevista de conclusão</span>
-            <input id="proj-fim" type="date" />
-          </label>
-          <label class="field">
-            <span>Orçamento global (opcional)</span>
-            <input id="proj-orcamento" min="0" step="0.01" type="number" />
-          </label>
-          <label class="field">
-            <span>Responsável técnico</span>
-            <input id="proj-responsavel" type="text" />
-          </label>
-          <label class="field">
-            <span>Observações</span>
-            <textarea id="proj-obs" rows="3"></textarea>
-          </label>
-          <hr class="field-divider" />
-          <label class="field">
-            <span>Chave API Google Gemini (para ler comprovantes)</span>
-            <input autocomplete="off" id="proj-gemini-key" placeholder="AIza..." type="password" />
-            <p class="field-hint">
-              Grátis em <a href="https://aistudio.google.com/apikey" rel="noopener" target="_blank">aistudio.google.com/apikey</a>.
-              Fica salva só neste navegador.
-            </p>
-          </label>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-ghost" id="modal-projeto-cancel" type="button">Cancelar</button>
-          <button class="btn" type="submit">Salvar</button>
-        </div>
-      </form>
-    </dialog>
-
-    <!-- Escanear comprovante -->
-    <dialog class="modal modal-scan" id="modal-scan">
-      <div class="modal-form">
-        <div class="modal-header">
-          <h3>Escanear comprovante</h3>
-          <button aria-label="Fechar" class="btn-icon" id="modal-scan-close" type="button">✕</button>
-        </div>
-        <div class="modal-body" id="scan-body">
-          <div class="scan-dropzone" id="scan-dropzone">
-            <input accept="image/*" capture="environment" hidden id="scan-file" type="file" />
-            <p class="scan-dropzone-icon">📷</p>
-            <p><strong>Toque para fotografar</strong> ou arraste a imagem aqui</p>
-            <p class="field-hint">NF, recibo, nota de serviço, comprovante PIX…</p>
-            <button class="btn btn-sm" id="scan-browse" type="button">Escolher arquivo</button>
-          </div>
-          <div class="hidden" id="scan-preview-wrap">
-            <img alt="Comprovante" class="scan-preview" id="scan-preview" />
-            <button class="btn btn-ghost btn-sm" id="scan-retake" type="button">Trocar imagem</button>
-          </div>
-          <div class="hidden scan-loading" id="scan-loading">
-            <div class="scan-spinner"></div>
-            <p>IA analisando comprovante…</p>
-          </div>
-          <div class="hidden" id="scan-result"></div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-ghost" id="modal-scan-cancel" type="button">Cancelar</button>
-          <button class="btn hidden" disabled id="scan-analyze" type="button">Analisar com IA</button>
-        </div>
-      </div>
-    </dialog>
-
-    <button aria-label="Escanear comprovante" class="fab-scan" id="fab-scan" type="button">📷</button>
-
-    <nav class="bottom-nav" aria-label="Navegação rápida">
-      <button class="bottom-nav-btn active" data-view="dashboard" type="button">
-        <span class="bottom-nav-icon" aria-hidden="true">📊</span>
-        <span class="bottom-nav-label">Início</span>
-      </button>
-      <button class="bottom-nav-btn" data-view="gastos" type="button">
-        <span class="bottom-nav-icon" aria-hidden="true">💰</span>
-        <span class="bottom-nav-label">Gastos</span>
-      </button>
-      <button class="bottom-nav-btn" data-view="etapas" type="button">
-        <span class="bottom-nav-icon" aria-hidden="true">📋</span>
-        <span class="bottom-nav-label">Etapas</span>
-      </button>
-      <button class="bottom-nav-btn" data-view="cronograma" type="button">
-        <span class="bottom-nav-icon" aria-hidden="true">📅</span>
-        <span class="bottom-nav-label">Prazos</span>
-      </button>
-      <button class="bottom-nav-btn" data-view="menu" id="bottom-nav-more" type="button" aria-label="Abrir menu completo">
-        <span class="bottom-nav-icon" aria-hidden="true">☰</span>
-        <span class="bottom-nav-label">Mais</span>
-      </button>
-    </nav>
-
-    <!-- Tutorial primeiro acesso -->
-    <dialog class="modal modal-tutorial" id="modal-tutorial">
-      <div class="tutorial-wrap">
-        <div class="tutorial-header">
-          <p class="tutorial-eyebrow">Primeiro acesso</p>
-          <h3 id="tutorial-title">Bem-vindo à Obra 103</h3>
-          <div class="tutorial-progress" id="tutorial-progress" aria-hidden="true"></div>
-        </div>
-        <div class="tutorial-body" id="tutorial-body"></div>
-        <div class="tutorial-footer">
-          <button class="btn btn-ghost" id="tutorial-skip" type="button">Pular</button>
-          <div class="tutorial-nav">
-            <button class="btn btn-ghost" disabled id="tutorial-prev" type="button">Anterior</button>
-            <button class="btn" id="tutorial-next" type="button">Próximo</button>
-          </div>
-        </div>
-      </div>
     </dialog>
   </body>
 </html>
