@@ -204,6 +204,8 @@ function applyOperationalFromSeed(data, seed) {
     ? data.solicitacoesEmergencia
     : [];
   const historicoPrecos = Array.isArray(data.historicoPrecos) ? data.historicoPrecos : [];
+  const enviosAplicados =
+    data.enviosAplicados && typeof data.enviosAplicados === "object" ? data.enviosAplicados : {};
   const lojas = data.lojas?.length ? data.lojas : fresh.lojas;
   const fornecedores = data.fornecedores?.length ? data.fornecedores : fresh.fornecedores;
 
@@ -220,6 +222,7 @@ function applyOperationalFromSeed(data, seed) {
   data.fornecedores = fornecedores;
   data.solicitacoesEmergencia = solicitacoesEmergencia;
   data.historicoPrecos = historicoPrecos;
+  data.enviosAplicados = enviosAplicados;
   data.seedVersion = seed?.seedVersion || "";
   return migrateState(data);
 }
@@ -3591,6 +3594,106 @@ function collectEnvioRows(lojaId) {
     .sort((a, b) => a.p.categoria.localeCompare(b.p.categoria) || a.p.nome.localeCompare(b.p.nome));
 }
 
+function getEnvioAplicadoKey(lojaId, data) {
+  return envioSigStorageKey(lojaId, data);
+}
+
+function getEnvioAplicadoRecord(lojaId, data) {
+  if (!state.enviosAplicados || typeof state.enviosAplicados !== "object") return null;
+  return state.enviosAplicados[getEnvioAplicadoKey(lojaId, data)] || null;
+}
+
+function isEnvioAplicado(lojaId, data) {
+  return !!getEnvioAplicadoRecord(lojaId, data)?.aplicado;
+}
+
+/** Baixa Central → entrada loja destino (envio semanal). Idempotente por loja+data. */
+function confirmarEnvioSexta() {
+  if (!canManageEnvio()) {
+    alert("Somente Admin ou Estoque Central podem confirmar o envio.");
+    return;
+  }
+  const lojaId = document.getElementById("filter-envio-loja")?.value || "";
+  const dataIso = document.getElementById("filter-envio-data")?.value || "";
+  if (!lojaId || lojaId === "central") {
+    alert("Selecione a loja de destino (não Central).");
+    return;
+  }
+  if (!dataIso) {
+    alert("Informe a data do envio.");
+    return;
+  }
+  if (isEnvioAplicado(lojaId, dataIso)) {
+    const rec = getEnvioAplicadoRecord(lojaId, dataIso);
+    alert(
+      `Este envio já foi aplicado em ${formatDateTimeBR(rec.aplicadoAt)}.\n` +
+        "Não há nova movimentação de estoque."
+    );
+    return;
+  }
+
+  // Só o campo Envio explícito (não usa “sugerir necessidade”)
+  const rows = collectEnvioRows(lojaId).filter((x) => Number(x.envio) > 0);
+  if (!rows.length) {
+    alert("Nenhum item com quantidade de envio > 0 no Estoque da loja.");
+    return;
+  }
+
+  const faltando = [];
+  rows.forEach(({ p, envio }) => {
+    const qtde = Number(envio) || 0;
+    const centralEst = ensureEstoque("central", p.id);
+    if (qtde > Number(centralEst.saldo || 0)) {
+      faltando.push(
+        `${p.nome}: Central ${formatNum(centralEst.saldo)} / precisa ${formatNum(qtde)}`
+      );
+    }
+  });
+  if (faltando.length) {
+    const ok = confirm(
+      `Atenção: Central sem saldo suficiente em alguns itens:\n\n` +
+        faltando.join("\n") +
+        "\n\nConfirmar mesmo assim (Central pode ficar negativo)?"
+    );
+    if (!ok) return;
+  } else if (
+    !confirm(
+      `Confirmar envio?\n` +
+        `Estoque Central → ${lojaNome(lojaId)}\n` +
+        `${rows.length} item(ns) — saída no Central e entrada na loja.`
+    )
+  ) {
+    return;
+  }
+
+  const itensAplicados = [];
+  rows.forEach(({ p, envio }) => {
+    const q = Math.max(0, Number(envio) || 0);
+    if (!q) return;
+    const centralEst = ensureEstoque("central", p.id);
+    const destinoEst = ensureEstoque(lojaId, p.id);
+    centralEst.saldo = Math.round((Number(centralEst.saldo || 0) - q) * 1000) / 1000;
+    destinoEst.saldo = Math.round((Number(destinoEst.saldo || 0) + q) * 1000) / 1000;
+    itensAplicados.push({ produtoId: p.id, qtde: q });
+  });
+
+  if (!state.enviosAplicados) state.enviosAplicados = {};
+  const key = getEnvioAplicadoKey(lojaId, dataIso);
+  const aplicadoAt = new Date().toISOString();
+  state.enviosAplicados[key] = {
+    aplicado: true,
+    lojaId,
+    data: dataIso,
+    aplicadoAt,
+    aplicadoPor: session.userId,
+    itens: itensAplicados,
+  };
+  persistEnvioSigRecord({ aplicado: true, aplicadoAt });
+  scheduleSave();
+  renderEnvioSexta();
+  alert(`Envio aplicado: Central → ${lojaNome(lojaId)} (${itensAplicados.length} itens).`);
+}
+
 function renderEnvioSexta() {
   setupEnvioLojaFilter();
   const lojaId = document.getElementById("filter-envio-loja")?.value || "";
@@ -3599,9 +3702,14 @@ function renderEnvioSexta() {
   if (dataEl && !dataEl.value) dataEl.value = dataIso;
 
   const loja = lojaNome(lojaId);
+  const aplicado = isEnvioAplicado(lojaId, dataIso);
   const meta = document.getElementById("envio-sheet-meta");
   const dateEl = document.getElementById("envio-sheet-date");
-  if (meta) meta.textContent = `Loja destino: ${loja}`;
+  if (meta) {
+    meta.textContent = aplicado
+      ? `Loja destino: ${loja} · Estoque aplicado (Central → loja)`
+      : `Loja destino: ${loja}`;
+  }
   if (dateEl) {
     const wd = weekdayLabel(dataIso);
     dateEl.textContent = `${formatDateBR(dataIso)}${wd ? ` · ${wd}` : ""}`;
@@ -3609,9 +3717,22 @@ function renderEnvioSexta() {
 
   const hint = document.getElementById("envio-hint");
   if (hint) {
-    hint.textContent = canManageEnvio()
-      ? "Gere a listagem por loja a partir do campo Envio do estoque. Imprima uma via por loja e colete as assinaturas."
-      : "Conferência do recebimento da sua loja — assine após conferir os itens.";
+    if (aplicado) {
+      const rec = getEnvioAplicadoRecord(lojaId, dataIso);
+      hint.textContent = `Envio já aplicado em ${formatDateTimeBR(rec?.aplicadoAt)} — estoque Central já debitado e loja creditada.`;
+    } else if (canManageEnvio()) {
+      hint.textContent =
+        "Liste o envio por loja, colete as assinaturas e clique em Confirmar envio para baixar o Central e entrar na loja.";
+    } else {
+      hint.textContent = "Conferência do recebimento da sua loja — assine após conferir os itens.";
+    }
+  }
+
+  const btnConf = document.getElementById("btn-envio-confirmar");
+  if (btnConf) {
+    btnConf.classList.toggle("hidden", !canManageEnvio());
+    btnConf.disabled = aplicado || lojaId === "central" || !lojaId;
+    btnConf.textContent = aplicado ? "Envio já aplicado" : "Confirmar envio";
   }
 
   restoreEnvioSigs();
@@ -3676,6 +3797,10 @@ function bindEnvioEvents() {
     const data = document.getElementById("filter-envio-data")?.value || hojeISO();
     const sheet = document.getElementById("envio-print-sheet");
     await exportElementToPdf(sheet, `envio-${lojaNome(lojaId)}-${data}`);
+  });
+
+  document.getElementById("btn-envio-confirmar")?.addEventListener("click", () => {
+    confirmarEnvioSexta();
   });
 
   document.getElementById("btn-envio-limpar-sigs")?.addEventListener("click", () => {
