@@ -71,6 +71,58 @@ function sortedCategoriaKeys(keys) {
   });
 }
 
+/** Soft bg / left-border / header colors per category (Envio grouping). */
+const CATEGORIA_COLOR_MAP = {
+  ACOUGUE: { bg: "#fef2f2", border: "#f87171", header: "#fecdd3" },
+  BEBIDAS: { bg: "#eff6ff", border: "#60a5fa", header: "#bfdbfe" },
+  DIVERSOS: { bg: "#f8fafc", border: "#94a3b8", header: "#e2e8f0" },
+  EMBALAGENS: { bg: "#fffbeb", border: "#fbbf24", header: "#fde68a" },
+  "EMBALAGENS BRAGO": { bg: "#fefce8", border: "#eab308", header: "#fef08a" },
+  ESCRITORIO: { bg: "#f5f3ff", border: "#a78bfa", header: "#ddd6fe" },
+  HORTIFRUTI: { bg: "#f0fdf4", border: "#4ade80", header: "#bbf7d0" },
+  INATIVO: { bg: "#f1f5f9", border: "#64748b", header: "#cbd5e1" },
+  LIMPEZA: { bg: "#ecfeff", border: "#22d3ee", header: "#a5f3fc" },
+  MERCEARIA: { bg: "#fff7ed", border: "#fb923c", header: "#fed7aa" },
+  PERSONALIZADOS: { bg: "#faf5ff", border: "#c084fc", header: "#e9d5ff" },
+  PORCIONADOS: { bg: "#fdf2f8", border: "#f472b6", header: "#fbcfe8" },
+};
+
+const CATEGORIA_COLOR_FALLBACK = [
+  { bg: "#f0f9ff", border: "#38bdf8", header: "#bae6fd" },
+  { bg: "#fdf4ff", border: "#e879f9", header: "#f5d0fe" },
+  { bg: "#f7fee7", border: "#a3e635", header: "#d9f99d" },
+  { bg: "#fff1f2", border: "#fb7185", header: "#fecdd3" },
+  { bg: "#f0fdfa", border: "#2dd4bf", header: "#99f6e4" },
+  { bg: "#fffbeb", border: "#f59e0b", header: "#fde68a" },
+  { bg: "#eef2ff", border: "#818cf8", header: "#c7d2fe" },
+  { bg: "#fafaf9", border: "#a8a29e", header: "#e7e5e4" },
+];
+
+function normalizeCategoriaKey(categoria) {
+  return String(categoria || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .trim();
+}
+
+function hashCategoriaColor(key) {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (Math.imul(31, h) + key.charCodeAt(i)) | 0;
+  return CATEGORIA_COLOR_FALLBACK[Math.abs(h) % CATEGORIA_COLOR_FALLBACK.length];
+}
+
+/** Stable soft palette for a category name (fixed map + hash fallback). */
+function categoriaColors(categoria) {
+  const key = normalizeCategoriaKey(categoria) || "OUTROS";
+  return CATEGORIA_COLOR_MAP[key] || hashCategoriaColor(key);
+}
+
+function categoriaColorCssVars(categoria) {
+  const c = categoriaColors(categoria);
+  return `--cat-bg:${c.bg};--cat-border:${c.border};--cat-header:${c.header}`;
+}
+
 function syncAccOpenFromDom(host, openSet, sel = ".cat-acc, .cotacao-acc, .estoque-acc, .valores-acc") {
   if (!host) return;
   host.querySelectorAll(sel).forEach((el) => {
@@ -6311,23 +6363,45 @@ function renderEnvioSexta() {
   if (!tbody) return;
 
   tbody.innerHTML = rows.length
-    ? rows
-        .map(({ p, e, qtde, obs }) => {
-          const checked = envioChecklist[p.id] ? "checked" : "";
-          return `<tr data-pid="${p.id}">
-            <td class="col-check">
-              <input class="no-print" data-check-envio type="checkbox" ${checked} />
-              <span class="check-print" aria-hidden="true"></span>
-            </td>
-            <td class="col-sticky-produto"><strong>${esc(p.nome)}</strong></td>
-            <td>${esc(p.categoria)}</td>
-            <td>${esc(p.unidade)}</td>
-            <td>${formatNum(e.saldo)}</td>
-            <td class="qty-envio">${formatNum(qtde)}</td>
-            <td>${obs ? `<span class="envio-sugestao">${esc(obs)}</span>` : ""}</td>
-          </tr>`;
-        })
-        .join("")
+    ? (() => {
+        const byCat = new Map();
+        for (const row of rows) {
+          const cat = row.p.categoria || "Sem categoria";
+          if (!byCat.has(cat)) byCat.set(cat, []);
+          byCat.get(cat).push(row);
+        }
+        const parts = [];
+        for (const cat of sortedCategoriaKeys([...byCat.keys()])) {
+          const items = byCat.get(cat);
+          const vars = categoriaColorCssVars(cat);
+          parts.push(
+            `<tr class="envio-cat-header" style="${vars}">
+              <td colspan="7">
+                <span class="envio-cat-header-label">${esc(cat)}</span>
+                <span class="envio-cat-count">${items.length}</span>
+              </td>
+            </tr>`
+          );
+          for (const { p, e, qtde, obs } of items) {
+            const checked = envioChecklist[p.id] ? "checked" : "";
+            parts.push(
+              `<tr class="envio-cat-row" data-pid="${p.id}" style="${vars}">
+                <td class="col-check">
+                  <input class="no-print" data-check-envio type="checkbox" ${checked} />
+                  <span class="check-print" aria-hidden="true"></span>
+                </td>
+                <td class="col-sticky-produto"><strong>${esc(p.nome)}</strong></td>
+                <td>${esc(p.categoria)}</td>
+                <td>${esc(p.unidade)}</td>
+                <td>${formatNum(e.saldo)}</td>
+                <td class="qty-envio">${formatNum(qtde)}</td>
+                <td>${obs ? `<span class="envio-sugestao">${esc(obs)}</span>` : ""}</td>
+              </tr>`
+            );
+          }
+        }
+        return parts.join("");
+      })()
     : '<tr><td colspan="7" class="empty-state">Nenhum item para envio. Preencha o campo Envio no Estoque da loja, ou ative “Sugerir necessidade”.</td></tr>';
 
   tbody.querySelectorAll("[data-check-envio]").forEach((input) => {

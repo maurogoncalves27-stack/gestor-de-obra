@@ -1948,6 +1948,53 @@ body.has-table-hscroll .content {
   font-size: 0.8rem;
 }
 
+/* Cores por categoria (agrupamento no Envio) */
+.envio-table tr.envio-cat-header td {
+  background: var(--cat-header, #e2e8f0);
+  border-left: 4px solid var(--cat-border, #94a3b8);
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #334155;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+.envio-table tr.envio-cat-header .envio-cat-header-label {
+  margin-right: 0.5rem;
+}
+.envio-table tr.envio-cat-header .envio-cat-count {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  vertical-align: middle;
+}
+.envio-table tr.envio-cat-row td {
+  background: var(--cat-bg, transparent);
+}
+.envio-table tr.envio-cat-row td:first-child {
+  border-left: 4px solid var(--cat-border, transparent);
+}
+.sticky-produto-envio tr.envio-cat-row td.col-check,
+.sticky-produto-envio tr.envio-cat-row td.col-sticky-produto {
+  background: var(--cat-bg, var(--bg-card));
+}
+.sticky-produto-envio tr.envio-cat-header td.col-check,
+.sticky-produto-envio tr.envio-cat-header td.col-sticky-produto {
+  background: var(--cat-header, #e2e8f0);
+}
+.envio-table tr.envio-cat-row:hover td,
+.envio-table tr.envio-cat-row:hover td.col-check,
+.envio-table tr.envio-cat-row:hover td.col-sticky-produto {
+  background: color-mix(in srgb, var(--cat-bg, #fff) 72%, #cbd5e1);
+}
+
 .envio-sigs {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2068,6 +2115,20 @@ body.has-table-hscroll .content {
     background: #f1f5f9 !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+  .envio-table tr.envio-cat-header td {
+    background: var(--cat-header, #e2e8f0) !important;
+    border-left: 4px solid var(--cat-border, #94a3b8) !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .envio-table tr.envio-cat-row td {
+    background: var(--cat-bg, #fff) !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .envio-table tr.envio-cat-row td:first-child {
+    border-left: 4px solid var(--cat-border, transparent) !important;
   }
 
   .sig-canvas {
