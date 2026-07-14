@@ -680,6 +680,16 @@ button, input, select, textarea { font: inherit; }
 .table-hscroll-footer.visible {
   display: block;
 }
+/* While footer owns H-scroll, hide native bar on the synced wrap (overflow still works) */
+@media (min-width: 901px) {
+  .table-wrap.hscroll-synced {
+    scrollbar-width: none;
+  }
+  .table-wrap.hscroll-synced::-webkit-scrollbar {
+    height: 0;
+    display: none;
+  }
+}
 .table-hscroll-footer-inner {
   overflow-x: auto;
   overflow-y: hidden;

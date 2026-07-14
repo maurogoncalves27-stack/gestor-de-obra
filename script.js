@@ -4953,6 +4953,7 @@ function hideTableHScrollFooter() {
   const footer = document.getElementById("table-hscroll-footer");
   if (hscrollActiveWrap) {
     hscrollActiveWrap.removeEventListener("scroll", onTableWrapScroll);
+    hscrollActiveWrap.classList.remove("hscroll-synced");
     hscrollActiveWrap = null;
   }
   if (hscrollWrapObserver) {
@@ -4985,9 +4986,16 @@ function onHScrollFooterScroll() {
 }
 
 function bindHScrollActiveWrap(wrap) {
-  if (hscrollActiveWrap === wrap) return;
-  if (hscrollActiveWrap) hscrollActiveWrap.removeEventListener("scroll", onTableWrapScroll);
+  if (hscrollActiveWrap === wrap) {
+    wrap.classList.add("hscroll-synced");
+    return;
+  }
+  if (hscrollActiveWrap) {
+    hscrollActiveWrap.removeEventListener("scroll", onTableWrapScroll);
+    hscrollActiveWrap.classList.remove("hscroll-synced");
+  }
   hscrollActiveWrap = wrap;
+  wrap.classList.add("hscroll-synced");
   wrap.addEventListener("scroll", onTableWrapScroll, { passive: true });
   if (hscrollWrapObserver) hscrollWrapObserver.disconnect();
   if (typeof ResizeObserver !== "undefined") {
