@@ -657,7 +657,7 @@
             </div>
           </section>
 
-          <!-- CONFIGURAÇÕES (admin) — usuários + nuvem -->
+          <!-- CONFIGURAÇÕES — admin: usuários + nuvem; fornecedor: minha senha -->
           <section class="view" id="view-configuracoes">
             <div class="config-tabs" role="tablist" aria-label="Configurações">
               <button class="config-tab active" data-config-tab="usuarios" role="tab" type="button">Usuários</button>
@@ -713,6 +713,30 @@
                     <button class="btn btn-ghost" id="btn-cloud-pull" type="button">Baixar nuvem → este aparelho</button>
                   </div>
                   <p class="field-hint" id="cloud-status" style="margin-top:1rem">Status: não configurado</p>
+                </div>
+              </article>
+            </div>
+
+            <div class="config-panel hidden" id="config-panel-conta" data-config-panel="conta">
+              <div class="view-toolbar">
+                <p class="toolbar-hint">Altere a senha do seu acesso. Não compartilhe com outros fornecedores.</p>
+              </div>
+              <article class="panel" style="max-width:420px">
+                <div class="panel-header"><h3>Minha senha</h3></div>
+                <div class="panel-body">
+                  <p class="field-hint" id="config-conta-user" style="margin-bottom:1rem"></p>
+                  <label class="field">
+                    <span>Nova senha</span>
+                    <input id="config-new-pass" autocomplete="new-password" placeholder="mín. 4 caracteres" type="password" />
+                  </label>
+                  <label class="field">
+                    <span>Confirmar senha</span>
+                    <input id="config-new-pass2" autocomplete="new-password" placeholder="repita a senha" type="password" />
+                  </label>
+                  <button class="btn" id="btn-config-save-pass" type="button" style="margin-top:0.5rem">Salvar senha</button>
+                  <p class="field-hint" style="margin-top:1rem">
+                    Se a nuvem estiver ativa, a nova senha sincroniza com os outros aparelhos.
+                  </p>
                 </div>
               </article>
             </div>

@@ -1102,7 +1102,7 @@ function can(view) {
     if (session.lojaId === "fabrica") views.push("producao");
     return views.includes(view);
   }
-  if (session.role === "fornecedor") return ["dashboard", "cotacao"].includes(view);
+  if (session.role === "fornecedor") return ["dashboard", "cotacao", "configuracoes"].includes(view);
   return false;
 }
 
@@ -1335,7 +1335,35 @@ function switchConfigTab(tab) {
   else renderUsuarios();
 }
 
+function renderMinhaSenha() {
+  const hint = document.getElementById("config-conta-user");
+  if (hint && session) {
+    hint.textContent = `Usuário: ${session.id} — ${session.nome}`;
+  }
+}
+
 function renderConfiguracoes() {
+  const tabs = document.querySelector(".config-tabs");
+  const panelConta = document.getElementById("config-panel-conta");
+
+  if (session?.role === "fornecedor") {
+    tabs?.classList.add("hidden");
+    document.querySelectorAll("[data-config-panel]").forEach((p) => {
+      p.classList.toggle("hidden", p.dataset.configPanel !== "conta");
+    });
+    const sub = document.getElementById("view-subtitle");
+    if (sub) sub.textContent = "Alterar sua senha";
+    renderMinhaSenha();
+    return;
+  }
+
+  tabs?.classList.remove("hidden");
+  panelConta?.classList.add("hidden");
+  const meta = VIEW_META.configuracoes;
+  if (meta) {
+    const sub = document.getElementById("view-subtitle");
+    if (sub) sub.textContent = meta[1];
+  }
   switchConfigTab(configTab);
 }
 
@@ -3553,6 +3581,7 @@ function openFornecedorModal(id) {
 
 /* ── Nuvem ── */
 function renderNuvem() {
+  if (session?.role !== "admin") return;
   const cfg = getCloudConfig() || { url: "", anonKey: "" };
   document.getElementById("cloud-url").value = cfg.url || "";
   document.getElementById("cloud-key").value = cfg.anonKey || "";
@@ -3593,6 +3622,7 @@ async function connectCloudAndSync() {
 
 /* ── Usuários ── */
 function renderUsuarios() {
+  if (session?.role !== "admin") return;
   const hint = document.getElementById("seed-version-hint");
   if (hint) {
     const ver = state.seedVersion || "—";
@@ -4575,7 +4605,35 @@ function initEvents() {
   document.getElementById("btn-logout").addEventListener("click", logout);
   document.getElementById("btn-config")?.addEventListener("click", () => switchView("configuracoes"));
   document.querySelectorAll(".config-tab").forEach((btn) => {
-    btn.addEventListener("click", () => switchConfigTab(btn.dataset.configTab));
+    btn.addEventListener("click", () => {
+      if (session?.role !== "admin") return;
+      switchConfigTab(btn.dataset.configTab);
+    });
+  });
+  document.getElementById("btn-config-save-pass")?.addEventListener("click", () => {
+    if (session?.role !== "fornecedor") return;
+    const pass = (document.getElementById("config-new-pass")?.value || "").trim();
+    const pass2 = (document.getElementById("config-new-pass2")?.value || "").trim();
+    if (!pass || pass.length < 4) {
+      alert("Senha deve ter ao menos 4 caracteres.");
+      return;
+    }
+    if (pass !== pass2) {
+      alert("As senhas não coincidem.");
+      return;
+    }
+    const user = state.usuarios.find((u) => u.id === session.id && u.role === "fornecedor");
+    if (!user) {
+      alert("Usuário não encontrado.");
+      return;
+    }
+    user.password = pass;
+    scheduleSave();
+    const el1 = document.getElementById("config-new-pass");
+    const el2 = document.getElementById("config-new-pass2");
+    if (el1) el1.value = "";
+    if (el2) el2.value = "";
+    alert("Senha atualizada.");
   });
   document.getElementById("menu-toggle").addEventListener("click", () => {
     document.getElementById("sidebar").classList.toggle("open");
@@ -4652,6 +4710,7 @@ function initEvents() {
   document.getElementById("btn-add-fornecedor")?.addEventListener("click", () => openFornecedorModal(null));
 
   document.getElementById("btn-reimport-seed")?.addEventListener("click", async () => {
+    if (session?.role !== "admin") return;
     if (
       !confirm(
         "Isso substitui produtos, estoques, cotações e produção pelos dados atuais da planilha.\n\nSenhas e usuários são mantidos. Continuar?"
@@ -4681,8 +4740,12 @@ function initEvents() {
     alert(`Dados da planilha carregados.\n${seed.produtos.length} produtos · ${n} itens com saldo > 0.\nEntre de novo para ver o estoque.`);
   });
 
-  document.getElementById("btn-cloud-save")?.addEventListener("click", () => connectCloudAndSync());
+  document.getElementById("btn-cloud-save")?.addEventListener("click", () => {
+    if (session?.role !== "admin") return;
+    connectCloudAndSync();
+  });
   document.getElementById("btn-cloud-push")?.addEventListener("click", async () => {
+    if (session?.role !== "admin") return;
     if (!initSupabase()) {
       alert("Configure a nuvem primeiro.");
       return;
@@ -4692,6 +4755,7 @@ function initEvents() {
     renderNuvem();
   });
   document.getElementById("btn-cloud-pull")?.addEventListener("click", async () => {
+    if (session?.role !== "admin") return;
     if (!initSupabase()) {
       alert("Configure a nuvem primeiro.");
       return;
