@@ -30,9 +30,16 @@ const VIEW_META = {
   producao: ["Produção", "Lista da fábrica"],
   cotacao: ["Cotação", "Preços por fornecedor"],
   resultado: ["Resultado", "Comparativo e vencedores"],
+  pedidos: ["Pedidos", "Pedidos emitidos aos fornecedores"],
   valores: ["Valores", "Estoque valorizado pelas cotações"],
   fornecedores: ["Fornecedores", "Cadastro e acessos"],
   configuracoes: ["Configurações", "Usuários, cotação e nuvem"],
+};
+
+const PEDIDO_STATUS = {
+  rascunho: "Rascunho",
+  emitido: "Emitido",
+  visto: "Visto",
 };
 
 const DIAS_COTACAO = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -501,6 +508,7 @@ function defaultState(seed) {
     movimentos: [],
     fornecedorItensOcultos: {},
     cotacaoAgenda: defaultCotacaoAgenda(),
+    pedidosFornecedor: [],
   };
 }
 
@@ -515,6 +523,7 @@ function applyOperationalFromSeed(data, seed) {
   const enviosAplicados =
     data.enviosAplicados && typeof data.enviosAplicados === "object" ? data.enviosAplicados : {};
   const movimentos = Array.isArray(data.movimentos) ? data.movimentos : [];
+  const pedidosFornecedor = Array.isArray(data.pedidosFornecedor) ? data.pedidosFornecedor : [];
   const fornecedorItensOcultos =
     data.fornecedorItensOcultos && typeof data.fornecedorItensOcultos === "object"
       ? data.fornecedorItensOcultos
@@ -541,6 +550,7 @@ function applyOperationalFromSeed(data, seed) {
   data.historicoPrecos = historicoPrecos;
   data.enviosAplicados = enviosAplicados;
   data.movimentos = movimentos;
+  data.pedidosFornecedor = pedidosFornecedor;
   data.fornecedorItensOcultos = fornecedorItensOcultos;
   data.cotacaoAgenda = cotacaoAgenda;
   data.seedVersion = seed?.seedVersion || "";
@@ -581,6 +591,7 @@ function migrateState(data) {
   if (!Array.isArray(data.historicoPrecos)) data.historicoPrecos = [];
   if (!data.enviosAplicados || typeof data.enviosAplicados !== "object") data.enviosAplicados = {};
   if (!Array.isArray(data.movimentos)) data.movimentos = [];
+  if (!Array.isArray(data.pedidosFornecedor)) data.pedidosFornecedor = [];
   if (!data.producoesAplicadas || typeof data.producoesAplicadas !== "object") data.producoesAplicadas = {};
   if (!data.fornecedorItensOcultos || typeof data.fornecedorItensOcultos !== "object") {
     data.fornecedorItensOcultos = {};
@@ -883,6 +894,54 @@ function safePdfFilename(name) {
     .slice(0, 80);
 }
 
+function waitForNextPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
+
+/**
+ * Monta um clone imprimível fora de .view/.hidden (html2canvas captura vazio
+ * quando o alvo fica em display:none ou muito fora da viewport, ex. left:-12000px).
+ */
+function buildPdfExportHost(element) {
+  document.getElementById("pdf-export-host")?.remove();
+  const host = document.createElement("div");
+  host.id = "pdf-export-host";
+  host.setAttribute("aria-hidden", "true");
+  Object.assign(host.style, {
+    position: "fixed",
+    left: "0",
+    top: "0",
+    width: "190mm",
+    maxWidth: "100vw",
+    background: "#fff",
+    color: "#000",
+    zIndex: "0",
+    opacity: "0",
+    pointerEvents: "none",
+    overflow: "visible",
+  });
+
+  const clone = element.cloneNode(true);
+  clone.id = `${element.id || "pdf-export"}-clone`;
+  clone.classList.remove("hidden");
+  clone.removeAttribute("aria-hidden");
+  clone.style.display = "block";
+  clone.style.visibility = "visible";
+  clone.style.position = "static";
+  clone.style.left = "auto";
+  clone.style.top = "auto";
+  clone.style.width = "100%";
+  clone.style.background = "#fff";
+  clone.style.color = "#000";
+  clone.style.zIndex = "auto";
+  clone.style.opacity = "1";
+  host.appendChild(clone);
+  document.body.appendChild(host);
+  return { host, clone };
+}
+
 /**
  * Exporta um elemento HTML para PDF (html2pdf). Fallback: impressão do navegador.
  */
@@ -891,12 +950,22 @@ async function exportElementToPdf(element, filename, printClass) {
     alert("Não achei o conteúdo do relatório.");
     return false;
   }
+
+  // textContent (não innerText): elementos com display:none retornam innerText vazio.
+  const contentText = String(element.textContent || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!contentText) {
+    alert("Não há conteúdo para gerar o PDF. Ajuste o filtro ou as cotações.");
+    return false;
+  }
+
   const fname = `${safePdfFilename(filename)}.pdf`;
   const wasHidden = element.classList.contains("hidden");
-  element.classList.remove("hidden");
-  element.setAttribute("aria-hidden", "false");
 
   if (!window.html2pdf) {
+    element.classList.remove("hidden");
+    element.setAttribute("aria-hidden", "false");
     if (printClass) document.body.classList.add(printClass);
     alert('Biblioteca PDF indisponível. Na impressão, escolha "Salvar como PDF".');
     window.print();
@@ -914,49 +983,61 @@ async function exportElementToPdf(element, filename, printClass) {
     return false;
   }
 
-  const prev = {
-    position: element.style.position,
-    left: element.style.left,
-    top: element.style.top,
-    width: element.style.width,
-    background: element.style.background,
-    zIndex: element.style.zIndex,
-    display: element.style.display,
-  };
-  element.style.position = "fixed";
-  element.style.left = "-12000px";
-  element.style.top = "0";
-  element.style.width = "190mm";
-  element.style.background = "#fff";
-  element.style.zIndex = "-1";
-  element.style.display = "block";
+  const { host, clone } = buildPdfExportHost(element);
+  if (printClass) document.body.classList.add(printClass);
 
   try {
+    await waitForNextPaint();
+    const cloneText = String(clone.textContent || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!cloneText || clone.scrollHeight < 8) {
+      alert("Não há conteúdo para gerar o PDF. Ajuste o filtro ou as cotações.");
+      return false;
+    }
+
     await window
       .html2pdf()
       .set({
         margin: [10, 10, 10, 10],
         filename: fname,
         image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: "#ffffff",
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: Math.max(clone.scrollWidth, 794),
+          windowHeight: Math.max(clone.scrollHeight, 100),
+        },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         pagebreak: { mode: ["css", "legacy"] },
       })
-      .from(element)
+      .from(clone)
       .save();
     return true;
   } catch (err) {
     console.error(err);
     alert("Falha ao gerar PDF. Tentando impressão…");
+    element.classList.remove("hidden");
+    element.setAttribute("aria-hidden", "false");
     if (printClass) document.body.classList.add(printClass);
     window.print();
+    window.addEventListener(
+      "afterprint",
+      () => {
+        if (wasHidden) {
+          element.classList.add("hidden");
+          element.setAttribute("aria-hidden", "true");
+        }
+      },
+      { once: true }
+    );
     return false;
   } finally {
-    Object.assign(element.style, prev);
-    if (wasHidden) {
-      element.classList.add("hidden");
-      element.setAttribute("aria-hidden", "true");
-    }
+    host.remove();
     if (printClass) {
       setTimeout(() => document.body.classList.remove(printClass), 800);
     }
@@ -1807,7 +1888,7 @@ function can(view) {
     if (session.lojaId === "fabrica") views.push("producao");
     return views.includes(view);
   }
-  if (session.role === "fornecedor") return ["dashboard", "cotacao", "configuracoes"].includes(view);
+  if (session.role === "fornecedor") return ["dashboard", "cotacao", "pedidos", "configuracoes"].includes(view);
   return false;
 }
 
@@ -1947,6 +2028,13 @@ function buildNav() {
   if (can("producao")) items.push(["producao", "🏭", "Produção"]);
   if (can("cotacao")) items.push(["cotacao", "💰", "Cotação"]);
   if (can("resultado")) items.push(["resultado", "🏆", "Resultado"]);
+  if (can("pedidos")) {
+    items.push([
+      "pedidos",
+      "📋",
+      session.role === "fornecedor" ? "Meus pedidos" : "Pedidos",
+    ]);
+  }
   if (can("valores")) items.push(["valores", "💵", "Valores"]);
   if (can("fornecedores")) items.push(["fornecedores", "🚚", "Fornecedores"]);
 
@@ -2052,7 +2140,11 @@ function switchView(view) {
   document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${view}`));
   document.getElementById("btn-config")?.classList.toggle("active-config", view === "configuracoes");
-  const [title, sub] = VIEW_META[view] || ["", ""];
+  let [title, sub] = VIEW_META[view] || ["", ""];
+  if (view === "pedidos" && session.role === "fornecedor") {
+    title = "Meus pedidos";
+    sub = "Pedidos emitidos para você";
+  }
   document.getElementById("view-title").textContent = title;
   document.getElementById("view-subtitle").textContent = sub;
   document.getElementById("sidebar").classList.remove("open");
@@ -4312,6 +4404,34 @@ function renderResultado() {
     <article class="kpi-card"><p class="kpi-label">Com vencedor / qtde</p><p class="kpi-value kpi-success">${comVencedor}</p></article>
     <article class="kpi-card"><p class="kpi-label">Sem cotação OK</p><p class="kpi-value kpi-danger">${semCotacao}</p></article>
     <article class="kpi-card"><p class="kpi-label">Total pedido</p><p class="kpi-value">${formatMoney(totalGeral)}</p></article>`;
+
+  renderResultadoPedidoActions();
+}
+
+function renderResultadoPedidoActions() {
+  const host = document.getElementById("resultado-pedido-actions");
+  if (!host) return;
+  const blocos = pedidosCompraPorFornecedor("");
+  if (!blocos.length) {
+    host.innerHTML =
+      '<p class="toolbar-hint">Nenhum vencedor com qtde &gt; 0 para revisar pedido.</p>';
+    return;
+  }
+  host.innerHTML = `
+    <p class="toolbar-hint" style="margin:0 0 0.5rem">Revisar e emitir pedido por fornecedor vencedor:</p>
+    <div class="pedido-action-chips">
+      ${blocos
+        .map(
+          (b) => `<button class="btn btn-sm" type="button" data-revisar-pedido="${escAttr(b.fornecedorId)}">
+            Revisar pedido — ${esc(b.nome)}
+            <span class="pedido-chip-meta">${b.itens.length} it. · ${formatMoney(b.total)}</span>
+          </button>`
+        )
+        .join("")}
+    </div>`;
+  host.querySelectorAll("[data-revisar-pedido]").forEach((btn) => {
+    btn.addEventListener("click", () => abrirRevisaoPedido(btn.dataset.revisarPedido));
+  });
 }
 
 function pedidosCompraPorFornecedor(fornFiltro) {
@@ -4336,6 +4456,579 @@ function pedidosCompraPorFornecedor(fornFiltro) {
   return [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 }
 
+let pedidoDraft = null;
+
+function getPedidosFornecedor() {
+  if (!Array.isArray(state.pedidosFornecedor)) state.pedidosFornecedor = [];
+  return state.pedidosFornecedor;
+}
+
+function totalItensPedido(itens) {
+  return (itens || []).reduce((s, it) => s + (Number(it.total) || 0), 0);
+}
+
+function recalcularItemPedido(it) {
+  const qtde = Math.max(0, Number(it.qtde) || 0);
+  const preco = Math.max(0, Number(it.preco) || 0);
+  it.qtde = qtde;
+  it.preco = preco;
+  it.total = qtde * preco;
+  return it;
+}
+
+function itensPedidoFromVencedores(fid) {
+  const bloco = pedidosCompraPorFornecedor(fid)[0];
+  if (!bloco) return [];
+  return bloco.itens.map(({ p, qtde, best, total }) =>
+    recalcularItemPedido({
+      produtoId: p.id,
+      nome: p.nome,
+      unidade: p.unidade || "",
+      qtde,
+      preco: best.preco,
+      total,
+    })
+  );
+}
+
+function buildPedidoDraft(fornecedorId, existingId) {
+  const existing = existingId
+    ? getPedidosFornecedor().find((p) => p.id === existingId)
+    : null;
+  if (existing) {
+    return {
+      id: existing.id,
+      fornecedorId: existing.fornecedorId,
+      criadoEm: existing.criadoEm,
+      status: existing.status || "rascunho",
+      observacao: existing.observacao || "",
+      itens: (existing.itens || []).map((it) => recalcularItemPedido({ ...it })),
+    };
+  }
+  const itens = itensPedidoFromVencedores(fornecedorId);
+  return {
+    id: uid(),
+    fornecedorId,
+    criadoEm: new Date().toISOString(),
+    status: "rascunho",
+    observacao: "",
+    itens,
+  };
+}
+
+function upsertPedidoDraft(status) {
+  if (!pedidoDraft) return null;
+  pedidoDraft.itens = (pedidoDraft.itens || []).map((it) => recalcularItemPedido({ ...it }));
+  pedidoDraft.status = status;
+  const list = getPedidosFornecedor();
+  const idx = list.findIndex((p) => p.id === pedidoDraft.id);
+  const saved = {
+    id: pedidoDraft.id,
+    fornecedorId: pedidoDraft.fornecedorId,
+    criadoEm: pedidoDraft.criadoEm || new Date().toISOString(),
+    status,
+    observacao: pedidoDraft.observacao || "",
+    itens: pedidoDraft.itens.map((it) => ({ ...it })),
+  };
+  if (status === "emitido") saved.emitidoEm = new Date().toISOString();
+  if (idx >= 0) list[idx] = { ...list[idx], ...saved };
+  else list.push(saved);
+  scheduleSave();
+  return saved;
+}
+
+function montarPedidoDocumentoEl(pedidoLike) {
+  const lista = Array.isArray(pedidoLike) ? pedidoLike : [pedidoLike];
+  const hoje = formatDateBR(hojeISO());
+  const el = document.createElement("article");
+  el.className = "pedido-sheet";
+  el.style.display = "block";
+  el.style.background = "#fff";
+  el.style.color = "#000";
+  el.style.padding = "8px";
+
+  const multi = lista.length > 1;
+  const titulo = multi
+    ? "Pedidos de compra por fornecedor"
+    : `Pedido de compra — ${lista[0]?.nome || fornNome(lista[0]?.fornecedorId)}`;
+
+  const body = lista
+    .map((ped) => {
+      const nome = ped.nome || fornNome(ped.fornecedorId);
+      const itens = ped.itens || [];
+      const total = ped.total != null ? ped.total : totalItensPedido(itens);
+      const rows = itens
+        .map((it) => {
+          const nomeItem = it.nome || it.p?.nome || "—";
+          const un = it.unidade || it.p?.unidade || "";
+          const qtde = it.qtde;
+          const preco = it.preco ?? it.best?.preco ?? 0;
+          const tot = it.total != null ? it.total : Number(qtde) * Number(preco);
+          return `<tr>
+            <td>${esc(nomeItem)}</td>
+            <td>${esc(un)}</td>
+            <td>${formatNum(qtde)}</td>
+            <td>${formatMoney(preco)}</td>
+            <td>${formatMoney(tot)}</td>
+          </tr>`;
+        })
+        .join("");
+      const obs = ped.observacao
+        ? `<p class="contagem-meta"><strong>Obs.:</strong> ${esc(ped.observacao)}</p>`
+        : "";
+      return `<section class="pedido-bloco">
+        <h3>${esc(nome)}</h3>
+        <p class="contagem-meta">${itens.length} item(ns)${ped.status ? ` · ${PEDIDO_STATUS[ped.status] || ped.status}` : ""}</p>
+        ${obs}
+        <table class="data-table pedido-table">
+          <thead>
+            <tr>
+              <th>Produto</th>
+              <th>UN</th>
+              <th>Qtde</th>
+              <th>Preço unit.</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>${rows || '<tr><td colspan="5">Sem itens</td></tr>'}</tbody>
+          <tfoot>
+            <tr class="totals-row">
+              <td colspan="4"><strong>Total do pedido</strong></td>
+              <td><strong>${formatMoney(total)}</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </section>`;
+    })
+    .join("");
+
+  el.innerHTML = `
+    <header class="pedido-print-header">
+      <div>
+        <p class="pedido-eyebrow">Aquela Parmê</p>
+        <h2>${esc(titulo)}</h2>
+        <p class="contagem-meta">Emitido em ${hoje}${multi ? ` · ${lista.length} fornecedor(es)` : ""}</p>
+      </div>
+    </header>
+    <div>${body}</div>
+    <footer class="pedido-print-footer">
+      <div>
+        <p>Assinatura / carimbo comprador</p>
+        <div class="pedido-sign-line"></div>
+      </div>
+      <div>
+        <p>Assinatura / carimbo fornecedor</p>
+        <div class="pedido-sign-line"></div>
+      </div>
+    </footer>`;
+  return el;
+}
+
+/**
+ * PDF a partir de dados / HTML montado no host (não usa nó display:none da view).
+ */
+async function exportPedidoDocumentoPdf(pedidoLike, filename) {
+  const lista = Array.isArray(pedidoLike) ? pedidoLike : [pedidoLike];
+  const itemCount = lista.reduce((n, p) => n + (p.itens?.length || 0), 0);
+  if (!itemCount) {
+    alert("Pedido sem itens para exportar.");
+    return false;
+  }
+  document.getElementById("pdf-export-host")?.remove();
+  const host = document.createElement("div");
+  host.id = "pdf-export-host";
+  host.setAttribute("aria-hidden", "true");
+  Object.assign(host.style, {
+    position: "fixed",
+    left: "0",
+    top: "0",
+    width: "190mm",
+    maxWidth: "100vw",
+    background: "#fff",
+    color: "#000",
+    zIndex: "0",
+    opacity: "0",
+    pointerEvents: "none",
+    overflow: "visible",
+  });
+  const sheet = montarPedidoDocumentoEl(lista);
+  host.appendChild(sheet);
+  document.body.appendChild(host);
+
+  const fnameBase =
+    filename ||
+    (lista.length === 1
+      ? `pedido-${lista[0].nome || fornNome(lista[0].fornecedorId)}-${hojeISO()}`
+      : `pedidos-fornecedores-${hojeISO()}`);
+
+  try {
+    if (!window.html2pdf) {
+      alert('Biblioteca PDF indisponível. Use a impressão do navegador ("Salvar como PDF").');
+      document.body.classList.add("printing-pedido");
+      const visible = montarPedidoDocumentoEl(lista);
+      visible.id = "pedido-print-temp";
+      visible.classList.remove("hidden");
+      document.body.appendChild(visible);
+      window.print();
+      window.addEventListener(
+        "afterprint",
+        () => {
+          document.body.classList.remove("printing-pedido");
+          visible.remove();
+        },
+        { once: true }
+      );
+      return false;
+    }
+    await waitForNextPaint();
+    const text = String(sheet.textContent || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!text || sheet.scrollHeight < 8) {
+      alert("Não há conteúdo para gerar o PDF.");
+      return false;
+    }
+    await window
+      .html2pdf()
+      .set({
+        margin: [10, 10, 10, 10],
+        filename: `${safePdfFilename(fnameBase)}.pdf`,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: "#ffffff",
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: Math.max(sheet.scrollWidth, 794),
+          windowHeight: Math.max(sheet.scrollHeight, 100),
+        },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak: { mode: ["css", "legacy"] },
+      })
+      .from(sheet)
+      .save();
+    return true;
+  } catch (err) {
+    console.error(err);
+    alert("Falha ao gerar PDF.");
+    return false;
+  } finally {
+    host.remove();
+  }
+}
+
+function abrirRevisaoPedido(fornecedorId, existingId) {
+  if (!fornecedorId) {
+    const filtrado = document.getElementById("filter-res-fornecedor")?.value || "";
+    if (!filtrado) {
+      alert("Selecione um fornecedor ou use o botão Revisar pedido do fornecedor desejado.");
+      return;
+    }
+    fornecedorId = filtrado;
+  }
+  pedidoDraft = buildPedidoDraft(fornecedorId, existingId);
+  if (!pedidoDraft.itens.length && !existingId) {
+    alert("Nenhum item vencedor com qtde > 0 para este fornecedor.");
+    pedidoDraft = null;
+    return;
+  }
+  renderModalPedidoRevisao();
+}
+
+function renderModalPedidoRevisao() {
+  const modal = document.getElementById("modal-pedido");
+  if (!modal || !pedidoDraft) return;
+  const nome = fornNome(pedidoDraft.fornecedorId);
+  document.getElementById("modal-pedido-title").textContent = `Pedido — ${nome}`;
+  const total = totalItensPedido(pedidoDraft.itens);
+  const body = document.getElementById("modal-pedido-body");
+  const readOnly = session.role === "fornecedor";
+
+  const rows = (pedidoDraft.itens || [])
+    .map((it, idx) => {
+      if (readOnly) {
+        return `<tr>
+          <td><strong>${esc(it.nome)}</strong></td>
+          <td>${esc(it.unidade || "")}</td>
+          <td>${formatNum(it.qtde)}</td>
+          <td>${formatMoney(it.preco)}</td>
+          <td>${formatMoney(it.total)}</td>
+          <td></td>
+        </tr>`;
+      }
+      return `<tr data-pedido-idx="${idx}">
+        <td><strong>${esc(it.nome)}</strong></td>
+        <td>${esc(it.unidade || "")}</td>
+        <td><input class="cell-input" data-pedido-field="qtde" data-idx="${idx}" type="number" min="0" step="any" value="${it.qtde}" /></td>
+        <td><input class="cell-input" data-pedido-field="preco" data-idx="${idx}" type="number" min="0" step="0.01" value="${it.preco}" /></td>
+        <td data-pedido-total="${idx}">${formatMoney(it.total)}</td>
+        <td><button class="btn-danger" type="button" data-pedido-rm="${idx}" title="Remover linha">Remover</button></td>
+      </tr>`;
+    })
+    .join("");
+
+  body.innerHTML = `
+    <div class="pedido-revisao" id="pedido-revisao-panel">
+      <p class="contagem-meta">
+        Status: <span class="badge ${pedidoDraft.status === "emitido" || pedidoDraft.status === "visto" ? "badge-ok" : "badge-falta"}">${esc(PEDIDO_STATUS[pedidoDraft.status] || pedidoDraft.status)}</span>
+        · Criado em ${formatDateTimeBR(pedidoDraft.criadoEm)}
+      </p>
+      <div class="table-wrap">
+        <table class="data-table" id="table-pedido-revisao">
+          <thead>
+            <tr>
+              <th>Produto</th>
+              <th>UN</th>
+              <th>Qtde</th>
+              <th>Preço</th>
+              <th>Total</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>${rows || '<tr><td colspan="6" class="empty-state">Sem itens</td></tr>'}</tbody>
+          <tfoot>
+            <tr class="totals-row">
+              <td colspan="4"><strong>Total</strong></td>
+              <td id="pedido-revisao-total"><strong>${formatMoney(total)}</strong></td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <label class="field" style="margin-top:0.75rem">
+        <span>Observação</span>
+        <textarea id="pedido-revisao-obs" rows="2" ${readOnly ? "readonly" : ""}>${esc(pedidoDraft.observacao || "")}</textarea>
+      </label>
+    </div>`;
+
+  const footer = document.getElementById("modal-pedido-footer");
+  if (readOnly) {
+    footer.innerHTML = `
+      <button class="btn btn-ghost" type="button" id="btn-pedido-modal-fechar">Fechar</button>
+      <button class="btn" type="button" id="btn-pedido-modal-pdf">Exportar PDF</button>`;
+  } else {
+    footer.innerHTML = `
+      <button class="btn btn-ghost" type="button" id="btn-pedido-modal-fechar">Fechar</button>
+      <button class="btn btn-ghost" type="button" id="btn-pedido-modal-pdf">Exportar PDF</button>
+      <button class="btn btn-ghost" type="button" id="btn-pedido-modal-rascunho">Salvar rascunho</button>
+      <button class="btn" type="button" id="btn-pedido-modal-emitir">Emitir para o fornecedor</button>`;
+  }
+
+  if (!readOnly) {
+    body.querySelectorAll("[data-pedido-field]").forEach((inp) => {
+      inp.addEventListener("input", () => {
+        const idx = Number(inp.dataset.idx);
+        const field = inp.dataset.pedidoField;
+        if (!pedidoDraft.itens[idx]) return;
+        pedidoDraft.itens[idx][field] = Number(inp.value) || 0;
+        recalcularItemPedido(pedidoDraft.itens[idx]);
+        const totCell = body.querySelector(`[data-pedido-total="${idx}"]`);
+        if (totCell) totCell.textContent = formatMoney(pedidoDraft.itens[idx].total);
+        const totEl = document.getElementById("pedido-revisao-total");
+        if (totEl) totEl.innerHTML = `<strong>${formatMoney(totalItensPedido(pedidoDraft.itens))}</strong>`;
+      });
+    });
+    body.querySelectorAll("[data-pedido-rm]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.pedidoRm);
+        pedidoDraft.itens.splice(idx, 1);
+        renderModalPedidoRevisao();
+      });
+    });
+    document.getElementById("pedido-revisao-obs")?.addEventListener("input", (ev) => {
+      pedidoDraft.observacao = ev.target.value;
+    });
+  }
+
+  document.getElementById("btn-pedido-modal-fechar")?.addEventListener("click", () => modal.close());
+  document.getElementById("btn-pedido-modal-pdf")?.addEventListener("click", async () => {
+    syncPedidoDraftFromForm();
+    const payload = {
+      ...pedidoDraft,
+      nome: fornNome(pedidoDraft.fornecedorId),
+      total: totalItensPedido(pedidoDraft.itens),
+    };
+    await exportPedidoDocumentoPdf(payload);
+  });
+  document.getElementById("btn-pedido-modal-rascunho")?.addEventListener("click", () => {
+    syncPedidoDraftFromForm();
+    if (!pedidoDraft.itens.length) {
+      alert("Inclua ao menos um item no pedido.");
+      return;
+    }
+    upsertPedidoDraft("rascunho");
+    alert("Rascunho salvo.");
+    renderModalPedidoRevisao();
+    if (document.querySelector(".view.active")?.id === "view-pedidos") renderPedidos();
+  });
+  document.getElementById("btn-pedido-modal-emitir")?.addEventListener("click", () => {
+    syncPedidoDraftFromForm();
+    if (!pedidoDraft.itens.length) {
+      alert("Inclua ao menos um item no pedido.");
+      return;
+    }
+    const withQty = pedidoDraft.itens.filter((it) => Number(it.qtde) > 0);
+    if (!withQty.length) {
+      alert("Informe quantidade > 0 em pelo menos um item.");
+      return;
+    }
+    pedidoDraft.itens = withQty.map((it) => recalcularItemPedido({ ...it }));
+    const saved = upsertPedidoDraft("emitido");
+    alert(
+      `Pedido emitido para ${fornNome(saved.fornecedorId)}. O fornecedor verá em Meus pedidos ao entrar no sistema.`
+    );
+    modal.close();
+    pedidoDraft = null;
+    if (can("pedidos")) renderPedidos();
+    if (can("resultado")) renderResultado();
+  });
+
+  const closeBtn = document.getElementById("modal-pedido-close");
+  if (closeBtn) closeBtn.onclick = () => modal.close();
+  if (!modal.open) modal.showModal();
+}
+
+function syncPedidoDraftFromForm() {
+  if (!pedidoDraft) return;
+  const obs = document.getElementById("pedido-revisao-obs");
+  if (obs) pedidoDraft.observacao = obs.value;
+  document.querySelectorAll("#table-pedido-revisao [data-pedido-field]").forEach((inp) => {
+    const idx = Number(inp.dataset.idx);
+    const field = inp.dataset.pedidoField;
+    if (!pedidoDraft.itens[idx]) return;
+    pedidoDraft.itens[idx][field] = Number(inp.value) || 0;
+    recalcularItemPedido(pedidoDraft.itens[idx]);
+  });
+}
+
+function abrirDetalhePedido(pedidoId) {
+  const ped = getPedidosFornecedor().find((p) => p.id === pedidoId);
+  if (!ped) return;
+  if (session.role === "fornecedor" && ped.fornecedorId !== session.fornecedorId) return;
+  if (session.role === "fornecedor" && ped.status === "emitido") {
+    ped.status = "visto";
+    ped.vistoEm = new Date().toISOString();
+    scheduleSave();
+  }
+  pedidoDraft = {
+    id: ped.id,
+    fornecedorId: ped.fornecedorId,
+    criadoEm: ped.criadoEm,
+    status: ped.status,
+    observacao: ped.observacao || "",
+    itens: (ped.itens || []).map((it) => recalcularItemPedido({ ...it })),
+  };
+  renderModalPedidoRevisao();
+  if (document.querySelector(".view.active")?.id === "view-pedidos") renderPedidos();
+}
+
+function renderPedidos() {
+  const list = document.getElementById("pedidos-lista");
+  const kpis = document.getElementById("pedidos-kpis");
+  if (!list) return;
+
+  const filtersAdmin = document.getElementById("pedidos-filters-admin");
+  const hint = document.getElementById("pedidos-hint");
+  if (filtersAdmin) filtersAdmin.classList.toggle("hidden", session.role !== "admin");
+  if (hint) {
+    hint.textContent =
+      session.role === "fornecedor"
+        ? "Pedidos emitidos para você pela administração."
+        : "Histórico de pedidos. Em Resultado use Revisar pedido para criar e emitir.";
+  }
+
+  let pedidos = [...getPedidosFornecedor()];
+  if (session.role === "fornecedor") {
+    pedidos = pedidos.filter(
+      (p) => p.fornecedorId === session.fornecedorId && p.status !== "rascunho"
+    );
+  } else {
+    const filtro = document.getElementById("filter-pedidos-status")?.value || "";
+    const forn = document.getElementById("filter-pedidos-fornecedor")?.value || "";
+    if (filtro) pedidos = pedidos.filter((p) => p.status === filtro);
+    if (forn) pedidos = pedidos.filter((p) => p.fornecedorId === forn);
+  }
+
+  pedidos.sort((a, b) => String(b.criadoEm || "").localeCompare(String(a.criadoEm || "")));
+
+  const todos = getPedidosFornecedor();
+  const scoped =
+    session.role === "fornecedor"
+      ? todos.filter((p) => p.fornecedorId === session.fornecedorId && p.status !== "rascunho")
+      : todos;
+  if (kpis) {
+    const emitidos = scoped.filter((p) => p.status === "emitido").length;
+    const vistos = scoped.filter((p) => p.status === "visto").length;
+    const rasc = session.role === "admin" ? scoped.filter((p) => p.status === "rascunho").length : 0;
+    kpis.innerHTML = `
+      <article class="kpi-card"><p class="kpi-label">Pedidos</p><p class="kpi-value">${scoped.length}</p></article>
+      <article class="kpi-card"><p class="kpi-label">Emitidos</p><p class="kpi-value kpi-warn">${emitidos}</p></article>
+      <article class="kpi-card"><p class="kpi-label">Vistos</p><p class="kpi-value kpi-success">${vistos}</p></article>
+      ${
+        session.role === "admin"
+          ? `<article class="kpi-card"><p class="kpi-label">Rascunhos</p><p class="kpi-value">${rasc}</p></article>`
+          : ""
+      }`;
+  }
+
+  const fornSel = document.getElementById("filter-pedidos-fornecedor");
+  if (fornSel && session.role === "admin") {
+    const prev = fornSel.value;
+    fornSel.innerHTML =
+      `<option value="">Todos os fornecedores</option>` +
+      getFornecedores().map((f) => `<option value="${f.id}">${esc(f.nome)}</option>`).join("");
+    if (prev && [...fornSel.options].some((o) => o.value === prev)) fornSel.value = prev;
+  }
+
+  if (!pedidos.length) {
+    list.innerHTML =
+      session.role === "fornecedor"
+        ? '<p class="empty-state">Nenhum pedido emitido para você ainda.</p>'
+        : '<p class="empty-state">Nenhum pedido neste filtro. Em Resultado, use <strong>Revisar pedido</strong> e emita.</p>';
+    return;
+  }
+
+  list.innerHTML = pedidos
+    .map((ped) => {
+      const st = ped.status || "rascunho";
+      const badge =
+        st === "visto" ? "badge-ok" : st === "emitido" ? "badge-falta" : "badge-inativo";
+      const total = totalItensPedido(ped.itens);
+      const n = (ped.itens || []).length;
+      return `<article class="pedido-card">
+        <div class="pedido-card-main">
+          <div>
+            <strong>${esc(fornNome(ped.fornecedorId))}</strong>
+            <p class="contagem-meta">${formatDateTimeBR(ped.criadoEm)} · ${n} item(ns) · ${formatMoney(total)}</p>
+          </div>
+          <span class="badge ${badge}">${esc(PEDIDO_STATUS[st] || st)}</span>
+        </div>
+        <div class="pedido-card-actions">
+          <button class="btn btn-sm" type="button" data-pedido-abrir="${escAttr(ped.id)}">Abrir</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-pedido-pdf="${escAttr(ped.id)}">PDF</button>
+        </div>
+      </article>`;
+    })
+    .join("");
+
+  list.querySelectorAll("[data-pedido-abrir]").forEach((btn) => {
+    btn.addEventListener("click", () => abrirDetalhePedido(btn.dataset.pedidoAbrir));
+  });
+  list.querySelectorAll("[data-pedido-pdf]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const ped = getPedidosFornecedor().find((p) => p.id === btn.dataset.pedidoPdf);
+      if (!ped) return;
+      await exportPedidoDocumentoPdf({
+        ...ped,
+        nome: fornNome(ped.fornecedorId),
+        total: totalItensPedido(ped.itens),
+      });
+    });
+  });
+}
+
 function montarPedidoCompraSheet() {
   const fornId = document.getElementById("filter-res-fornecedor")?.value || "";
   const pedidos = pedidosCompraPorFornecedor(fornId);
@@ -4347,81 +5040,35 @@ function montarPedidoCompraSheet() {
     );
     return null;
   }
-
-  const hoje = formatDateBR(hojeISO());
-  const sheet = document.getElementById("pedido-print-sheet");
-  const body = document.getElementById("pedido-print-body");
-  document.getElementById("pedido-print-titulo").textContent =
-    pedidos.length === 1 ? `Pedido de compra — ${pedidos[0].nome}` : "Pedidos de compra por fornecedor";
-  document.getElementById("pedido-print-meta").textContent =
-    `Emitido em ${hoje}${fornId ? ` · filtro: ${pedidos[0].nome}` : ` · ${pedidos.length} fornecedor(es)`}`;
-
-  body.innerHTML = pedidos
-    .map((ped) => {
-      const rows = ped.itens
-        .map(
-          ({ p, qtde, best, total }) => `<tr>
-          <td>${esc(p.nome)}</td>
-          <td>${esc(p.unidade)}</td>
-          <td>${formatNum(qtde)}</td>
-          <td>${formatMoney(best.preco)}</td>
-          <td>${formatMoney(total)}</td>
-        </tr>`
-        )
-        .join("");
-      return `<section class="pedido-bloco">
-        <h3>${esc(ped.nome)}</h3>
-        <p class="contagem-meta">${ped.itens.length} item(ns)</p>
-        <table class="data-table pedido-table">
-          <thead>
-            <tr>
-              <th>Produto</th>
-              <th>UN</th>
-              <th>Qtde</th>
-              <th>Preço unit.</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-          <tfoot>
-            <tr class="totals-row">
-              <td colspan="4"><strong>Total do pedido</strong></td>
-              <td><strong>${formatMoney(ped.total)}</strong></td>
-            </tr>
-          </tfoot>
-        </table>
-      </section>`;
-    })
-    .join("");
-
   const fname =
     pedidos.length === 1
       ? `pedido-${pedidos[0].nome}-${hojeISO()}`
       : `pedidos-fornecedores-${hojeISO()}`;
-  return { sheet, filename: fname, pedidos };
+  return { pedidos, filename: fname };
 }
 
-function emitirPedidoCompra(modo = "pdf") {
+async function emitirPedidoCompra(modo = "pdf") {
   const built = montarPedidoCompraSheet();
   if (!built) return;
-  const { sheet, filename } = built;
+  const { pedidos, filename } = built;
   if (modo === "print") {
-    sheet.classList.remove("hidden");
-    sheet.setAttribute("aria-hidden", "false");
+    document.getElementById("pdf-export-host")?.remove();
+    const sheet = montarPedidoDocumentoEl(pedidos);
+    sheet.id = "pedido-print-temp";
+    document.body.appendChild(sheet);
     document.body.classList.add("printing-pedido");
     window.print();
     window.addEventListener(
       "afterprint",
       () => {
         document.body.classList.remove("printing-pedido");
-        sheet.classList.add("hidden");
-        sheet.setAttribute("aria-hidden", "true");
+        sheet.remove();
       },
       { once: true }
     );
     return;
   }
-  exportElementToPdf(sheet, filename, "printing-pedido");
+  await exportPedidoDocumentoPdf(pedidos, filename);
 }
 
 /* ── Valores (estoque × cotação + histórico/inflação) ── */
@@ -5902,6 +6549,7 @@ function render() {
   if (active === "producao") renderProducao();
   if (active === "cotacao") renderCotacao();
   if (active === "resultado") renderResultado();
+  if (active === "pedidos") renderPedidos();
   if (active === "valores") renderValores();
   if (active === "fornecedores") renderFornecedores();
   if (active === "configuracoes") renderConfiguracoes();
@@ -6179,6 +6827,11 @@ function initEvents() {
   document.getElementById("filter-res-busca")?.addEventListener("input", () => can("resultado") && renderResultado());
   document.getElementById("filter-res-fornecedor")?.addEventListener("change", () => can("resultado") && renderResultado());
   document.getElementById("filter-res-so-vencedor")?.addEventListener("change", () => can("resultado") && renderResultado());
+  document.getElementById("btn-pedido-revisar")?.addEventListener("click", () => {
+    if (!can("resultado")) return;
+    const fid = document.getElementById("filter-res-fornecedor")?.value || "";
+    abrirRevisaoPedido(fid || null);
+  });
   document.getElementById("btn-pedido-compra")?.addEventListener("click", () => {
     if (!can("resultado")) return;
     emitirPedidoCompra("pdf");
@@ -6186,6 +6839,9 @@ function initEvents() {
   document.getElementById("btn-pedido-compra-print")?.addEventListener("click", () => {
     if (!can("resultado")) return;
     emitirPedidoCompra("print");
+  });
+  ["filter-pedidos-status", "filter-pedidos-fornecedor"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("change", () => can("pedidos") && renderPedidos());
   });
   document.getElementById("btn-producao-pdf")?.addEventListener("click", () => {
     if (!can("producao")) return;

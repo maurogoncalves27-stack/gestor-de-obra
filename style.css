@@ -1191,12 +1191,94 @@ body.has-table-hscroll .content {
   display: none;
   background: var(--bg-elevated);
   padding: 1rem 0;
+  color: var(--text);
 }
 .pedido-sheet:not(.hidden) {
   display: block;
 }
+/* Clone usado pelo html2pdf — sempre legível fora de .view.hidden */
+#pdf-export-host .pedido-sheet,
+#pdf-export-host .envio-sheet {
+  display: block !important;
+  visibility: visible !important;
+  color: #000 !important;
+  background: #fff !important;
+}
+#pdf-export-host .pedido-print-header h2,
+#pdf-export-host .pedido-bloco h3,
+#pdf-export-host .data-table th,
+#pdf-export-host .data-table td {
+  color: #000 !important;
+}
 .pedido-bloco h3 { margin: 0 0 0.25rem; }
 .pedido-print-header h2 { margin: 0.15rem 0; }
+
+.resultado-pedido-actions {
+  margin: 0 0 1rem;
+}
+.pedido-action-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.pedido-action-chips .btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  text-align: left;
+  line-height: 1.25;
+}
+.pedido-chip-meta {
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.pedidos-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.pedido-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+}
+.pedido-card-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  flex: 1;
+  min-width: 0;
+}
+.pedido-card-main .contagem-meta { margin: 0.15rem 0 0; }
+.pedido-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.modal.modal-pedido-wide {
+  max-width: 880px;
+  width: calc(100vw - 1.25rem);
+}
+.modal-footer-wrap {
+  flex-wrap: wrap;
+}
+@media (max-width: 560px) {
+  .pedido-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .pedido-card-actions .btn { flex: 1; }
+}
 
 /* Buttons */
 .btn {
@@ -1844,7 +1926,8 @@ body.has-table-hscroll .content {
   body.printing-pedido .kpi-grid.no-print {
     display: none !important;
   }
-  body.printing-pedido #pedido-print-sheet {
+  body.printing-pedido #pedido-print-sheet,
+  body.printing-pedido #pedido-print-temp {
     display: block !important;
   }
   body.printing-producao .table-wrap.no-print,

@@ -473,7 +473,7 @@
           <!-- RESULTADO -->
           <section class="view" id="view-resultado">
             <div class="view-toolbar no-print">
-              <p class="toolbar-hint">Comparativo — vencedor = menor preço OK. Emita pedido só dos vencedores com qtde &gt; 0.</p>
+              <p class="toolbar-hint">Comparativo — vencedor = menor preço OK. Revise e emita o pedido ao fornecedor (ele verá em Meus pedidos).</p>
               <div class="filters">
                 <select id="filter-res-fornecedor" aria-label="Filtrar por fornecedor">
                   <option value="">Todos os fornecedores</option>
@@ -484,10 +484,12 @@
                   Só com vencedor e qtde &gt; 0
                 </label>
               </div>
+              <button class="btn" id="btn-pedido-revisar" type="button">Revisar pedido</button>
               <button class="btn btn-ghost" id="btn-pedido-compra-print" type="button">Imprimir pedido</button>
-              <button class="btn" id="btn-pedido-compra" type="button">Exportar PDF pedido</button>
+              <button class="btn btn-ghost" id="btn-pedido-compra" type="button">Exportar PDF pedido</button>
             </div>
             <div class="kpi-grid no-print" id="resultado-kpis"></div>
+            <div class="resultado-pedido-actions no-print" id="resultado-pedido-actions"></div>
             <div class="table-wrap no-print">
               <table class="data-table" id="table-resultado">
                 <thead>
@@ -510,27 +512,26 @@
                 </tfoot>
               </table>
             </div>
+          </section>
 
-            <article class="pedido-sheet hidden" id="pedido-print-sheet" aria-hidden="true">
-              <header class="pedido-print-header">
-                <div>
-                  <p class="pedido-eyebrow">Aquela Parmê</p>
-                  <h2 id="pedido-print-titulo">Pedido de compra</h2>
-                  <p id="pedido-print-meta" class="contagem-meta"></p>
-                </div>
-              </header>
-              <div id="pedido-print-body"></div>
-              <footer class="pedido-print-footer">
-                <div>
-                  <p>Assinatura / carimbo comprador</p>
-                  <div class="pedido-sign-line"></div>
-                </div>
-                <div>
-                  <p>Assinatura / carimbo fornecedor</p>
-                  <div class="pedido-sign-line"></div>
-                </div>
-              </footer>
-            </article>
+          <!-- PEDIDOS (admin histórico / fornecedor Meus pedidos) -->
+          <section class="view" id="view-pedidos">
+            <div class="view-toolbar no-print" id="pedidos-toolbar-admin">
+              <p class="toolbar-hint" id="pedidos-hint">Pedidos emitidos aos fornecedores. Fornecedor vê os seus ao entrar.</p>
+              <div class="filters" id="pedidos-filters-admin">
+                <select id="filter-pedidos-fornecedor" aria-label="Filtrar fornecedor">
+                  <option value="">Todos os fornecedores</option>
+                </select>
+                <select id="filter-pedidos-status" aria-label="Filtrar status">
+                  <option value="">Todos os status</option>
+                  <option value="rascunho">Rascunho</option>
+                  <option value="emitido">Emitido</option>
+                  <option value="visto">Visto</option>
+                </select>
+              </div>
+            </div>
+            <div class="kpi-grid no-print" id="pedidos-kpis"></div>
+            <div class="pedidos-lista" id="pedidos-lista"></div>
           </section>
 
           <!-- VALORES (estoque × cotação + histórico/inflação) -->
@@ -875,6 +876,15 @@
           <button class="btn" id="modal-save" type="submit">Salvar</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog class="modal modal-pedido-wide" id="modal-pedido">
+      <div class="modal-header">
+        <h3 id="modal-pedido-title">Revisar pedido</h3>
+        <button aria-label="Fechar" class="btn-icon" id="modal-pedido-close" type="button">✕</button>
+      </div>
+      <div class="modal-body" id="modal-pedido-body"></div>
+      <div class="modal-footer modal-footer-wrap" id="modal-pedido-footer"></div>
     </dialog>
   </body>
 </html>
