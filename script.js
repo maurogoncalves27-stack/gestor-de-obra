@@ -599,7 +599,7 @@ function defaultState(seed) {
     baldesPor: seed?.baldesPor || {},
     produtosPorLoja: seed?.produtosPorLoja || {},
     solicitacoesEmergencia: [],
-    historicoPrecos: [],
+    historicoPrecos: Array.isArray(seed?.historicoPrecos) ? seed.historicoPrecos.map((s) => ({ ...s, precos: { ...(s.precos || {}) } })) : [],
     enviosAplicados: {},
     movimentos: [],
     fornecedorItensOcultos: {},
@@ -615,7 +615,15 @@ function applyOperationalFromSeed(data, seed) {
   const solicitacoesEmergencia = Array.isArray(data.solicitacoesEmergencia)
     ? data.solicitacoesEmergencia
     : [];
-  const historicoPrecos = Array.isArray(data.historicoPrecos) ? data.historicoPrecos : [];
+  const localHist = Array.isArray(data.historicoPrecos) ? data.historicoPrecos : [];
+  const seedHist = Array.isArray(seed?.historicoPrecos) ? seed.historicoPrecos : [];
+  const seenSnap = new Set(localHist.map((s) => s?.id).filter(Boolean));
+  const historicoPrecos = [
+    ...seedHist
+      .filter((s) => s?.id && !seenSnap.has(s.id))
+      .map((s) => ({ ...s, precos: { ...(s.precos || {}) } })),
+    ...localHist,
+  ].slice(0, 52);
   const enviosAplicados =
     data.enviosAplicados && typeof data.enviosAplicados === "object" ? data.enviosAplicados : {};
   const movimentos = Array.isArray(data.movimentos) ? data.movimentos : [];
