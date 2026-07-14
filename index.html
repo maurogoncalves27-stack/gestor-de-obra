@@ -6,12 +6,12 @@
     <meta name="description" content="Estoque multi-loja e cotação de fornecedores — Aquela Parmê" />
     <meta name="theme-color" content="#c2410c" />
     <title>Estoque & Cotação — Aquela Parmê</title>
-    <link rel="stylesheet" href="style.css?v=20260714-lotes" />
+    <link rel="stylesheet" href="style.css?v=20260714-forn" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <script src="config.js?v=20260714-lotes"></script>
-    <script src="seed-data.js?v=20260714-lotes"></script>
-    <script src="script.js?v=20260714-lotes" defer></script>
+    <script src="config.js?v=20260714-forn"></script>
+    <script src="seed-data.js?v=20260714-forn"></script>
+    <script src="script.js?v=20260714-forn" defer></script>
   </head>
   <body>
     <!-- LOGIN -->
@@ -653,40 +653,18 @@
             </div>
           </section>
 
-          <!-- FORNECEDORES (admin) -->
-          <section class="view" id="view-fornecedores">
-            <div class="view-toolbar">
-              <p class="toolbar-hint">Cadastre fornecedores — gera login e cotação automaticamente.</p>
-              <button class="btn" id="btn-add-fornecedor" type="button">+ Novo fornecedor</button>
-            </div>
-            <div class="table-wrap">
-              <table class="data-table" id="table-fornecedores">
-                <thead>
-                  <tr>
-                    <th>Nome</th>
-                    <th>Login</th>
-                    <th>Senha atual</th>
-                    <th>Ativo</th>
-                    <th>Contato</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </section>
-
-          <!-- CONFIGURAÇÕES — admin: usuários + nuvem; fornecedor: minha senha -->
+          <!-- CONFIGURAÇÕES — admin: usuários / fornecedores / cotação / nuvem; fornecedor: minha senha -->
           <section class="view" id="view-configuracoes">
             <div class="config-tabs" role="tablist" aria-label="Configurações">
               <button class="config-tab active" data-config-tab="usuarios" role="tab" type="button">Usuários</button>
+              <button class="config-tab" data-config-tab="fornecedores" role="tab" type="button">Fornecedores</button>
               <button class="config-tab" data-config-tab="cotacao" role="tab" type="button">Cotação</button>
               <button class="config-tab" data-config-tab="nuvem" role="tab" type="button">Nuvem</button>
             </div>
 
             <div class="config-panel" id="config-panel-usuarios" data-config-panel="usuarios">
               <div class="view-toolbar">
-                <p class="toolbar-hint">Senhas de lojas e fornecedores. Cada perfil só acessa seus dados.</p>
+                <p class="toolbar-hint">Senhas de admin e lojas. Fornecedores ficam na aba Fornecedores.</p>
                 <button class="btn btn-ghost" id="btn-reimport-seed" type="button">Atualizar estoque/cotação da planilha</button>
               </div>
               <p class="field-hint" style="margin:0 0 1rem" id="seed-version-hint"></p>
@@ -699,6 +677,28 @@
                       <th>Perfil</th>
                       <th>Vínculo</th>
                       <th>Nova senha</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="config-panel hidden" id="config-panel-fornecedores" data-config-panel="fornecedores">
+              <div class="view-toolbar">
+                <p class="toolbar-hint">Cadastre fornecedores — gera login e cotação automaticamente.</p>
+                <button class="btn" id="btn-add-fornecedor" type="button">+ Novo fornecedor</button>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table" id="table-fornecedores">
+                  <thead>
+                    <tr>
+                      <th>Nome</th>
+                      <th>Login</th>
+                      <th>Senha atual</th>
+                      <th>Ativo</th>
+                      <th>Contato</th>
                       <th></th>
                     </tr>
                   </thead>

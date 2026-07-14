@@ -1,4 +1,4 @@
-# Deploy — arraste esta pasta (ou o conteúdo) no Netlify
+# Deploy: pasta publicada no Netlify (publish = ".")
 [build]
   publish = "."
 
@@ -8,18 +8,29 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
 
-# HTML always revalidated so new deploys (and cache-bust ?v=) appear promptly
+# HTML: never cache so deploys and ?v= busts appear immediately
 [[headers]]
   for = "/index.html"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+    Expires = "0"
 
 [[headers]]
   for = "/"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+    Expires = "0"
 
-# JS/CSS: short cache; index.html uses ?v= query to bust when content changes
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+    Expires = "0"
+
+# JS/CSS: revalidate; index.html uses ?v= query to bust when content changes
 [[headers]]
   for = "/*.js"
   [headers.values]

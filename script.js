@@ -32,8 +32,7 @@ const VIEW_META = {
   resultado: ["Resultado", "Comparativo e vencedores"],
   pedidos: ["Pedidos", "Pedidos emitidos aos fornecedores"],
   valores: ["Valores", "Estoque valorizado pelas cotações"],
-  fornecedores: ["Fornecedores", "Cadastro e acessos"],
-  configuracoes: ["Configurações", "Usuários, cotação e nuvem"],
+  configuracoes: ["Configurações", "Usuários, fornecedores, cotação e nuvem"],
 };
 
 const PEDIDO_STATUS = {
@@ -2036,7 +2035,6 @@ function buildNav() {
     ]);
   }
   if (can("valores")) items.push(["valores", "💵", "Valores"]);
-  if (can("fornecedores")) items.push(["fornecedores", "🚚", "Fornecedores"]);
 
   document.getElementById("nav").innerHTML = items
     .map(
@@ -2136,6 +2134,11 @@ function setupEnvioLojaFilter() {
 }
 
 function switchView(view) {
+  // Fornecedores virou aba em Configurações
+  if (view === "fornecedores") {
+    configTab = "fornecedores";
+    view = "configuracoes";
+  }
   if (!can(view)) return;
   document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === `view-${view}`));
@@ -2223,7 +2226,7 @@ function bindFiltersCollapse() {
 let configTab = "usuarios";
 
 function switchConfigTab(tab) {
-  const allowed = ["usuarios", "nuvem", "cotacao"];
+  const allowed = ["usuarios", "fornecedores", "nuvem", "cotacao"];
   configTab = allowed.includes(tab) ? tab : "usuarios";
   document.querySelectorAll("[data-config-tab]").forEach((b) => {
     b.classList.toggle("active", b.dataset.configTab === configTab);
@@ -2233,6 +2236,7 @@ function switchConfigTab(tab) {
   });
   if (configTab === "nuvem") renderNuvem();
   else if (configTab === "cotacao") renderConfigCotacaoAgenda();
+  else if (configTab === "fornecedores") renderFornecedores();
   else renderUsuarios();
 }
 
@@ -5391,7 +5395,9 @@ function ensureFornecedorStructures(fid) {
 }
 
 function renderFornecedores() {
+  if (session?.role !== "admin") return;
   const tbody = document.querySelector("#table-fornecedores tbody");
+  if (!tbody) return;
   tbody.innerHTML = getAllFornecedores()
     .map((f) => {
       const user = state.usuarios.find((u) => u.fornecedorId === f.id && u.role === "fornecedor");
@@ -5546,10 +5552,10 @@ function renderUsuarios() {
   }
 
   const tbody = document.querySelector("#table-usuarios tbody");
-  tbody.innerHTML = state.usuarios
+  const usuarios = state.usuarios.filter((u) => u.role !== "fornecedor");
+  tbody.innerHTML = usuarios
     .map((u) => {
-      const vinculo =
-        u.role === "loja" ? lojaNome(u.lojaId) : u.role === "fornecedor" ? fornNome(u.fornecedorId) : "—";
+      const vinculo = u.role === "loja" ? lojaNome(u.lojaId) : "—";
       return `<tr data-uid="${u.id}">
         <td><code>${esc(u.id)}</code></td>
         <td>${esc(u.nome)}</td>
@@ -5559,7 +5565,7 @@ function renderUsuarios() {
         <td><button class="btn btn-sm" data-save-pass type="button">Salvar senha</button></td>
       </tr>`;
     })
-    .join("");
+    .join("") || '<tr><td colspan="6" class="empty-state">Nenhum usuário</td></tr>';
 
   tbody.querySelectorAll("tr[data-uid]").forEach((tr) => {
     tr.querySelector("[data-save-pass]").addEventListener("click", () => {
@@ -6551,7 +6557,6 @@ function render() {
   if (active === "resultado") renderResultado();
   if (active === "pedidos") renderPedidos();
   if (active === "valores") renderValores();
-  if (active === "fornecedores") renderFornecedores();
   if (active === "configuracoes") renderConfiguracoes();
   updateTableHScrollFooter();
 }
