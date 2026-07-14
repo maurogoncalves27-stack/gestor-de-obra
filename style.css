@@ -823,6 +823,20 @@ body.has-table-hscroll .content {
 .badge-baixo { background: var(--danger-soft); color: #b91c1c; }
 .badge-falta { background: var(--warning-soft); color: #c2410c; }
 .badge-inativo { background: #f1f5f9; color: #64748b; }
+.badge-modo-formula {
+  background: #f3e8ff;
+  color: #6b21a8;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.badge-modo-fixo {
+  background: #e2e8f0;
+  color: #334155;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
 .row-inativo { opacity: 0.65; }
 .row-oculto { opacity: 0.72; }
 .td-acoes {
@@ -865,6 +879,22 @@ body.has-table-hscroll .content {
 }
 .td-min-modo {
   white-space: nowrap;
+}
+.min-modo-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.min-modo-select {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  max-width: 7.5rem;
 }
 .contagem-min-row {
   display: flex;

@@ -1016,6 +1016,23 @@ function descricaoReceitaFabrica(produtoId) {
     .replace(/\+/g, " + ");
 }
 
+function canEditMinimoFabrica() {
+  return session?.role === "admin" || (session?.role === "loja" && session.lojaId === "fabrica");
+}
+
+/** Modo efetivo do mínimo fábrica: "fixo" | "formula" (só itens com receita). */
+function minimoModoFabrica(entry, produtoId) {
+  if (!hasReceitaFabrica(produtoId)) return "fixo";
+  return entry?.minimoManual ? "fixo" : "formula";
+}
+
+function badgeMinimoModoHtml(modo) {
+  if (modo === "formula") {
+    return `<span class="badge badge-modo-formula" title="Calculado pela fórmula">Fórmula</span>`;
+  }
+  return `<span class="badge badge-modo-fixo" title="Valor fixo manual">Fixo</span>`;
+}
+
 function setMinimoEstoque(lojaId, produtoId, valor, { manualOverride = false } = {}) {
   const entry = ensureEstoque(lojaId, produtoId);
   entry.minimo = Math.max(0, Number(valor) || 0);
@@ -1024,6 +1041,7 @@ function setMinimoEstoque(lojaId, produtoId, valor, { manualOverride = false } =
       entry.minimoManual = true;
       entry.minimoAuto = false;
     }
+    // Sem override: só grava o número se já estiver em Fixo; em Fórmula o sync recalcula.
   } else {
     entry.minimoManual = false;
     entry.minimoAuto = false;
@@ -1041,20 +1059,48 @@ function restaurarMinimoFormula(produtoId) {
   return entry;
 }
 
+/**
+ * Alterna Fixo ↔ Fórmula no mínimo da fábrica.
+ * Fórmula → Fixo: mantém o valor calculado atual como ponto de partida.
+ * Fixo → Fórmula: confirma (valor fixo será sobrescrito pelo cálculo).
+ */
+function setMinimoModoFabrica(produtoId, modo, { confirmRestore = true } = {}) {
+  if (!hasReceitaFabrica(produtoId)) return null;
+  const entry = ensureEstoque("fabrica", produtoId);
+  if (modo === "fixo") {
+    entry.minimoManual = true;
+    entry.minimoAuto = false;
+    scheduleSave();
+    return entry;
+  }
+  if (entry.minimoManual && confirmRestore) {
+    const ok = confirm(
+      "Voltar à fórmula?\n\nO valor fixo atual será substituído pelo cálculo automático."
+    );
+    if (!ok) return null;
+  }
+  return restaurarMinimoFormula(produtoId);
+}
+
 function openMinimoFabricaModal(produtoId) {
+  if (!canEditMinimoFabrica()) {
+    alert("Somente Admin ou Fábrica podem alterar o modo/fórmula do mínimo.");
+    return;
+  }
   const p = getProduto(produtoId);
   const meta = (state.receitasMinimoFabrica || {})[produtoId];
   if (!p || !meta) return;
   const entry = ensureEstoque("fabrica", produtoId);
   const desc = descricaoReceitaFabrica(produtoId);
+  const modoAtual = minimoModoFabrica(entry, produtoId);
 
   document.getElementById("modal-title").textContent = `Mínimo fábrica — ${p.nome}`;
   document.getElementById("modal-body").innerHTML = `
-    <p class="toolbar-hint">Na planilha este mínimo vinha da célula lilás (fórmula). Você pode manter automático ou fixar um valor manual.</p>
+    <p class="toolbar-hint">Escolha <strong>Fórmula</strong> (mínimo recalculado) ou <strong>Fixo</strong> (número manual). Em Fixo a fórmula fica pausada até você voltar.</p>
     <label class="field"><span>Modo</span>
       <select id="mf-modo">
-        <option value="auto" ${!entry.minimoManual ? "selected" : ""}>Automático (fórmula)</option>
-        <option value="manual" ${entry.minimoManual ? "selected" : ""}>Manual (fixo)</option>
+        <option value="formula" ${modoAtual === "formula" ? "selected" : ""}>Fórmula</option>
+        <option value="fixo" ${modoAtual === "fixo" ? "selected" : ""}>Fixo</option>
       </select>
     </label>
     <label class="field"><span>Valor mínimo (KG/UN)</span>
@@ -1066,10 +1112,17 @@ function openMinimoFabricaModal(produtoId) {
   const modal = document.getElementById("modal");
   modal.showModal();
   const syncMode = () => {
-    const manual = document.getElementById("mf-modo").value === "manual";
-    document.getElementById("mf-minimo").disabled = !manual;
+    const fixo = document.getElementById("mf-modo").value === "fixo";
+    document.getElementById("mf-minimo").disabled = !fixo;
   };
-  document.getElementById("mf-modo").addEventListener("change", syncMode);
+  document.getElementById("mf-modo").addEventListener("change", () => {
+    const sel = document.getElementById("mf-modo");
+    // Fórmula → Fixo: manter valor atual (já no input) como pontapé do fixo
+    if (sel.value === "fixo") {
+      document.getElementById("mf-minimo").value = entry.minimo ?? 0;
+    }
+    syncMode();
+  });
   syncMode();
 
   document.getElementById("modal-form").onsubmit = (ev) => {
@@ -1080,12 +1133,15 @@ function openMinimoFabricaModal(produtoId) {
       if (!state.receitasMinimoFabrica) state.receitasMinimoFabrica = {};
       state.receitasMinimoFabrica[produtoId] = { ...(meta || {}), expr, autoMinimo: true };
     }
-    if (modo === "manual") {
+    if (modo === "fixo") {
       setMinimoEstoque("fabrica", produtoId, document.getElementById("mf-minimo").value, {
         manualOverride: true,
       });
     } else {
-      restaurarMinimoFormula(produtoId);
+      const restored = setMinimoModoFabrica(produtoId, "formula", {
+        confirmRestore: modoAtual === "fixo",
+      });
+      if (!restored) return;
     }
     modal.close();
     setupRoleFilters();
@@ -2249,25 +2305,37 @@ function renderContagemLista() {
     .map(({ p, e, contado, st }) => {
       const cls = [contado ? "contado" : "", st === "baixo" ? "baixo" : ""].filter(Boolean).join(" ");
       const fabReceita = lojaId === "fabrica" && hasReceitaFabrica(p.id);
-      const minHint = fabReceita ? (e.minimoManual ? "mín. manual" : "mín. fórmula") : "mínimo";
+      const modo = fabReceita ? minimoModoFabrica(e, p.id) : null;
+      const isFormula = modo === "formula";
+      const canModo = fabReceita && canEditMinimoFabrica();
       const inteira = isUnidadeInteira(p.unidade);
+      const modoControls = fabReceita
+        ? `<div class="min-modo-controls">
+            ${badgeMinimoModoHtml(modo)}
+            ${
+              canModo
+                ? `<select class="min-modo-select" data-min-modo title="Modo do estoque mínimo">
+                     <option value="formula" ${isFormula ? "selected" : ""}>Fórmula</option>
+                     <option value="fixo" ${!isFormula ? "selected" : ""}>Fixo</option>
+                   </select>
+                   <button class="btn btn-ghost btn-sm" data-min-cfg type="button" title="${escAttr(descricaoReceitaFabrica(p.id) || "Editar fórmula")}">Fórmula…</button>`
+                : ""
+            }
+          </div>`
+        : "";
       return `<article class="contagem-card ${cls}" data-pid="${p.id}">
         <div class="contagem-card-top">
           <div>
             <strong>${esc(p.nome)}</strong>
-            <div class="contagem-meta">${esc(p.categoria)} · ${esc(p.unidade)}${contado ? " · ✓ contado hoje" : ""}${fabReceita && !e.minimoManual ? " · lilás" : ""}</div>
+            <div class="contagem-meta">${esc(p.categoria)} · ${esc(p.unidade)}${contado ? " · ✓ contado hoje" : ""}${isFormula ? " · lilás" : ""}</div>
           </div>
           <span class="badge badge-${st === "baixo" ? "baixo" : contado ? "ok" : "falta"}">${st === "baixo" ? "Baixo" : contado ? "OK" : "Pendente"}</span>
         </div>
         <div class="contagem-min-row">
-          <label>${minHint}
-            <input class="qty-input qty-min" data-min inputmode="decimal" step="any" type="number" value="${e.minimo ?? 0}" ${fabReceita && !e.minimoManual ? "title=\"Calculado por fórmula — altere para fixar\"" : ""} />
+          <label>mínimo
+            <input class="qty-input qty-min ${isFormula ? "cell-lilas" : ""}" data-min inputmode="decimal" step="any" type="number" value="${e.minimo ?? 0}" ${isFormula ? "readonly title=\"Calculado por fórmula — mude para Fixo para editar\"" : 'title="Estoque mínimo"'} />
           </label>
-          ${
-            fabReceita
-              ? `<button class="btn btn-ghost btn-sm" data-min-cfg type="button">${e.minimoManual ? "↺ Fórmula" : "Fórmula…"}</button>`
-              : ""
-          }
+          ${modoControls}
         </div>
         <div class="contagem-controls">
           <button class="qty-btn" data-delta="-1" type="button" aria-label="Diminuir">−</button>
@@ -2319,20 +2387,33 @@ function renderContagemLista() {
     };
 
     minInput?.addEventListener("change", () => {
+      const entryNow = ensureEstoque(lojaId, pid);
+      const emFormula =
+        lojaId === "fabrica" && hasReceitaFabrica(pid) && minimoModoFabrica(entryNow, pid) === "formula";
+      if (emFormula) {
+        // Não grava override silencioso: recarrega o valor da fórmula
+        minInput.value = entryNow.minimo ?? 0;
+        return;
+      }
       setMinimoEstoque(lojaId, pid, minInput.value, {
         manualOverride: lojaId === "fabrica" && hasReceitaFabrica(pid),
       });
       renderContagemLista();
     });
 
-    card.querySelector("[data-min-cfg]")?.addEventListener("click", () => {
-      const e = ensureEstoque(lojaId, pid);
-      if (e.minimoManual) {
-        restaurarMinimoFormula(pid);
-        renderContagemLista();
-      } else {
-        openMinimoFabricaModal(pid);
+    card.querySelector("[data-min-modo]")?.addEventListener("change", (ev) => {
+      const next = ev.target.value;
+      const done = setMinimoModoFabrica(pid, next);
+      if (!done) {
+        const e = ensureEstoque(lojaId, pid);
+        ev.target.value = minimoModoFabrica(e, pid);
+        return;
       }
+      renderContagemLista();
+    });
+
+    card.querySelector("[data-min-cfg]")?.addEventListener("click", () => {
+      openMinimoFabricaModal(pid);
     });
 
     card.querySelectorAll("[data-delta]").forEach((btn) => {
@@ -2577,6 +2658,7 @@ function renderEstoque() {
   const incluirOcultos = document.getElementById("filter-estoque-ocultos")?.checked === true;
   const tbody = document.querySelector("#table-estoque tbody");
   const canEdit = session.role === "admin" || (session.role === "loja" && session.lojaId === lojaId);
+  const canMinimoFab = lojaId === "fabrica" && canEditMinimoFabrica();
   const crudCentral = canManageProdutos() && lojaId === "central";
 
   const btnAdd = document.getElementById("btn-estoque-add-produto");
@@ -2586,7 +2668,7 @@ function renderEstoque() {
   if (btnAdd) btnAdd.classList.toggle("hidden", !crudCentral);
   if (wrapInativos) wrapInativos.classList.toggle("hidden", !crudCentral);
   if (colAcoes) colAcoes.classList.toggle("hidden", !crudCentral && !(canEdit && incluirOcultos));
-  if (hintFab) hintFab.classList.toggle("hidden", !(lojaId === "fabrica" && canEdit));
+  if (hintFab) hintFab.classList.toggle("hidden", !(lojaId === "fabrica" && canMinimoFab));
 
   const lista =
     crudCentral && incluirInativos
@@ -2620,17 +2702,25 @@ function renderEstoque() {
         .map(({ p, e, st, oculto }) => {
           const dis = canEdit ? "" : "disabled";
           const temReceita = showFabMin && hasReceitaFabrica(p.id);
-          const isManual = temReceita && e.minimoManual;
-          const isAuto = temReceita && !e.minimoManual;
-          const disMin = canEdit ? "" : "disabled";
+          const modo = temReceita ? minimoModoFabrica(e, p.id) : showFabMin ? "fixo" : null;
+          const isManual = temReceita && modo === "fixo";
+          const isAuto = temReceita && modo === "formula";
+          const disMin = !canEdit || isAuto ? "disabled" : "";
+          const disModo = canMinimoFab ? "" : "disabled";
           const modoCell = showFabMin
             ? `<td class="td-min-modo">
-                ${
-                  temReceita
-                    ? `<button class="btn btn-ghost btn-sm ${isAuto ? "pill-lilas" : ""}" data-min-formula="${p.id}" type="button" title="${escAttr(descricaoReceitaFabrica(p.id))}">${isManual ? "Manual" : "Fórmula"}</button>
-                       ${isManual ? `<button class="btn btn-ghost btn-sm" data-min-auto="${p.id}" type="button" title="Voltar à fórmula">↺</button>` : ""}`
-                    : `<span class="badge badge-inativo">Fixo</span>`
-                }
+                <div class="min-modo-controls">
+                  ${badgeMinimoModoHtml(modo || "fixo")}
+                  ${
+                    temReceita
+                      ? `<select class="min-modo-select" data-min-modo="${p.id}" ${disModo} title="Modo do estoque mínimo">
+                           <option value="formula" ${isAuto ? "selected" : ""}>Fórmula</option>
+                           <option value="fixo" ${isManual ? "selected" : ""}>Fixo</option>
+                         </select>
+                         <button class="btn btn-ghost btn-sm" data-min-formula="${p.id}" type="button" ${disModo} title="${escAttr(descricaoReceitaFabrica(p.id))}">Editar…</button>`
+                      : ""
+                  }
+                </div>
               </td>`
             : "";
           const acoesVis = showAcoesVis
@@ -2658,7 +2748,7 @@ function renderEstoque() {
           <td>${esc(p.unidade)}</td>
           <td><input class="cell-input" data-field="saldo" ${dis} step="any" type="number" value="${e.saldo}" /></td>
           <td>
-            <input class="cell-input cell-minimo ${isAuto ? "cell-lilas" : ""}" data-field="minimo" ${disMin} step="any" type="number" value="${e.minimo}" title="${isAuto ? "Calculado pela fórmula — edite para fixar manual" : "Estoque mínimo"}" />
+            <input class="cell-input cell-minimo ${isAuto ? "cell-lilas" : ""}" data-field="minimo" ${disMin} step="any" type="number" value="${e.minimo}" title="${isAuto ? "Calculado pela fórmula — mude o modo para Fixo para editar" : "Estoque mínimo"}" />
           </td>
           ${modoCell}
           <td><input class="cell-input" data-field="envio" ${dis} step="any" type="number" value="${e.envio}" /></td>
@@ -2681,7 +2771,7 @@ function renderEstoque() {
     if (!thModo && thMin) {
       thModo = document.createElement("th");
       thModo.className = "col-min-modo";
-      thModo.textContent = "Mín. modo";
+      thModo.textContent = "Modo mín.";
       thMin.after(thModo);
     }
   } else if (thModo) {
@@ -2697,6 +2787,12 @@ function renderEstoque() {
         const field = input.dataset.field;
         if (input.type === "checkbox") entry[field] = input.checked;
         else if (field === "minimo") {
+          const emFormula =
+            lojaId === "fabrica" && hasReceitaFabrica(pid) && minimoModoFabrica(entry, pid) === "formula";
+          if (emFormula) {
+            input.value = entry.minimo ?? 0;
+            return;
+          }
           setMinimoEstoque(lojaId, pid, input.value, {
             manualOverride: lojaId === "fabrica" && hasReceitaFabrica(pid),
           });
@@ -2709,7 +2805,7 @@ function renderEstoque() {
         scheduleSave();
         const st = estoqueStatus(entry);
         tr.className = `row-${st}${getProduto(pid)?.ativo === false ? " row-inativo" : ""}`;
-        const badge = tr.querySelector(".badge:not(.badge-inativo)");
+        const badge = tr.querySelector(".badge:not(.badge-inativo):not(.badge-modo-fixo):not(.badge-modo-formula)");
         if (badge) {
           badge.className = `badge badge-${st === "baixo" ? "baixo" : "ok"}`;
           badge.textContent = st === "baixo" ? "Baixo" : st === "atencao" ? "Atenção" : "OK";
@@ -2718,14 +2814,20 @@ function renderEstoque() {
     });
   });
 
-  tbody.querySelectorAll("[data-min-formula]").forEach((btn) => {
-    btn.addEventListener("click", () => openMinimoFabricaModal(btn.dataset.minFormula));
-  });
-  tbody.querySelectorAll("[data-min-auto]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      restaurarMinimoFormula(btn.dataset.minAuto);
+  tbody.querySelectorAll("[data-min-modo]").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const pid = sel.dataset.minModo;
+      const done = setMinimoModoFabrica(pid, sel.value);
+      if (!done) {
+        const e = ensureEstoque(lojaId, pid);
+        sel.value = minimoModoFabrica(e, pid);
+        return;
+      }
       renderEstoque();
     });
+  });
+  tbody.querySelectorAll("[data-min-formula]").forEach((btn) => {
+    btn.addEventListener("click", () => openMinimoFabricaModal(btn.dataset.minFormula));
   });
 
   tbody.querySelectorAll("[data-edit-prod]").forEach((btn) => {
