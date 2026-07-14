@@ -6,12 +6,12 @@
     <meta name="description" content="Estoque multi-loja e cotação de fornecedores — Aquela Parmê" />
     <meta name="theme-color" content="#c2410c" />
     <title>Estoque & Cotação — Aquela Parmê</title>
-    <link rel="stylesheet" href="style.css?v=20260714-estoque-sem-ok" />
+    <link rel="stylesheet" href="style.css?v=20260714-personalizados-v1" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="config.js?v=20260714-cot-sanfona"></script>
-    <script src="seed-data.js?v=20260714-cadastro-v1"></script>
-    <script src="script.js?v=20260714-cadastro-v1" defer></script>
+    <script src="seed-data.js?v=20260714-personalizados-v1"></script>
+    <script src="script.js?v=20260714-est-val-sanfona" defer></script>
   </head>
   <body>
     <!-- LOGIN -->
@@ -209,24 +209,7 @@
               Voltar de Fixo para Fórmula pede confirmação.
             </p>
             <div class="estoque-cards hidden" id="estoque-cards"></div>
-            <div class="table-wrap">
-              <table class="data-table sticky-produto" id="table-estoque">
-                <thead>
-                  <tr>
-                    <th class="col-sticky-produto">Produto</th>
-                    <th>Cat.</th>
-                    <th>UN</th>
-                    <th>Saldo</th>
-                    <th>Mínimo</th>
-                    <th>Envio</th>
-                    <th>Lotes</th>
-                    <th>Status</th>
-                    <th class="col-prod-acoes hidden">Ações</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
+            <div class="cat-acordeoes estoque-acordeoes" id="estoque-acordeoes"></div>
           </section>
 
           <!-- ENVIO -->
@@ -445,7 +428,7 @@
               </button>
             </div>
             <div class="alert-banner alert-warn cotacao-agenda-banner hidden" id="cotacao-agenda-banner" role="status"></div>
-            <div class="cotacao-acordeoes" id="cotacao-acordeoes"></div>
+            <div class="cat-acordeoes cotacao-acordeoes" id="cotacao-acordeoes"></div>
             <div class="cotacao-total-bar totals-row">
               <strong>Total cotado (OK)</strong>
               <span id="cotacao-total"></span>
@@ -531,6 +514,9 @@
                   <select id="filter-valores-loja">
                     <option value="">Todas as lojas</option>
                   </select>
+                  <select id="filter-valores-categoria">
+                    <option value="">Todas as categorias</option>
+                  </select>
                   <input id="filter-valores-busca" placeholder="Buscar produto…" type="search" />
                   <label class="check-inline filters-check">
                     <input id="filter-valores-so-saldo" type="checkbox" checked />
@@ -560,29 +546,10 @@
                 </table>
               </div>
               <div class="panel-header" style="margin-bottom:0.5rem"><h3 id="valores-detalhe-titulo">Detalhe por produto</h3></div>
-              <div class="table-wrap">
-                <table class="data-table" id="table-valores-itens">
-                  <thead>
-                    <tr>
-                      <th>Produto</th>
-                      <th>Cat.</th>
-                      <th>UN</th>
-                      <th>Saldo</th>
-                      <th>Preço ref.</th>
-                      <th>Fonte</th>
-                      <th>Valor</th>
-                      <th>Δ vs base</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                  <tfoot>
-                    <tr class="totals-row">
-                      <td colspan="6"><strong>Subtotal (filtro)</strong></td>
-                      <td id="valores-subtotal"></td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                </table>
+              <div class="cat-acordeoes valores-acordeoes" id="valores-acordeoes"></div>
+              <div class="valores-subtotal-bar">
+                <span>Subtotal (filtro)</span>
+                <span id="valores-subtotal">R$ 0,00</span>
               </div>
             </div>
 

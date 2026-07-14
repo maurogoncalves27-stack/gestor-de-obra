@@ -53,8 +53,51 @@ const EMERGENCIA_STATUS = {
 let envioSigPads = null;
 let envioChecklist = {};
 let envioSigRestoredKey = "";
-/** Categorias abertas na sanfona da Cotação (persiste entre re-renders). */
+/** Categorias abertas na sanfona (persiste entre re-renders). */
 const cotacaoAccOpen = new Set();
+const estoqueAccOpen = new Set();
+const valoresAccOpen = new Set();
+
+/** Ordena nomes de categoria pela lista do cadastro, depois A–Z. */
+function sortedCategoriaKeys(keys) {
+  const catOrder = categorias();
+  return [...keys].sort((a, b) => {
+    const ia = catOrder.indexOf(a);
+    const ib = catOrder.indexOf(b);
+    const sa = ia === -1 ? 9999 : ia;
+    const sb = ib === -1 ? 9999 : ib;
+    if (sa !== sb) return sa - sb;
+    return a.localeCompare(b, "pt-BR");
+  });
+}
+
+function syncAccOpenFromDom(host, openSet, sel = ".cat-acc, .cotacao-acc, .estoque-acc, .valores-acc") {
+  if (!host) return;
+  host.querySelectorAll(sel).forEach((el) => {
+    const key = el.dataset.cat;
+    if (!key) return;
+    if (el.open) openSet.add(key);
+    else openSet.delete(key);
+  });
+}
+
+function bindAccToggle(host, openSet, sel = ".cat-acc, .cotacao-acc, .estoque-acc, .valores-acc") {
+  if (!host) return;
+  host.querySelectorAll(sel).forEach((el) => {
+    el.addEventListener("toggle", () => {
+      const key = el.dataset.cat;
+      if (!key) return;
+      if (el.open) openSet.add(key);
+      else openSet.delete(key);
+    });
+  });
+}
+
+function accOpenAttr(catFilter, catName, openSet) {
+  const open = catFilter && catFilter === catName ? true : openSet.has(catName);
+  if (open) openSet.add(catName);
+  return open ? "open" : "";
+}
 
 let state = null;
 let session = null;
@@ -1091,6 +1134,57 @@ function produtosAtivos() {
   return state.produtos.filter((p) => p.ativo);
 }
 
+/** Categoria PERSONALIZADOS (planilha): cotação só com o fornecedor `personalizados`. */
+const FORN_PERSONALIZADOS_ID = "personalizados";
+
+function isCategoriaPersonalizados(categoria) {
+  return String(categoria || "")
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .includes("PERSONALIZADO");
+}
+
+function isProdutoPersonalizado(produtoOrId) {
+  const p = typeof produtoOrId === "string" ? getProduto(produtoOrId) : produtoOrId;
+  return !!(p && isCategoriaPersonalizados(p.categoria));
+}
+
+/**
+ * Na planilha base, itens PERSONALIZADOS ficam ocultos nas abas Amorix/Oesa/Garra/Rei
+ * e só entram na aba própria PERSONALIZADOS (compra dedicada, sem disputar preço).
+ */
+function produtoVisivelNaCotacaoFornecedor(produto, fornecedorId) {
+  if (!produto || !fornecedorId) return true;
+  const isPersoProd = isCategoriaPersonalizados(produto.categoria);
+  const isPersoForn = fornecedorId === FORN_PERSONALIZADOS_ID;
+  if (isPersoForn) return isPersoProd;
+  return !isPersoProd;
+}
+
+function produtosParaCotacaoFornecedor(fornecedorId) {
+  return produtosAtivos().filter((p) => produtoVisivelNaCotacaoFornecedor(p, fornecedorId));
+}
+
+function categoriasCotacaoFornecedor(fornecedorId) {
+  return [...new Set(produtosParaCotacaoFornecedor(fornecedorId).map((p) => p.categoria).filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b, "pt-BR")
+  );
+}
+
+function populateCotCategoriaFilter(fornecedorId) {
+  const sel = document.getElementById("filter-cot-categoria");
+  if (!sel) return;
+  const prev = sel.value;
+  const cats = fornecedorId ? categoriasCotacaoFornecedor(fornecedorId) : categorias();
+  sel.innerHTML =
+    '<option value="">Todas as categorias</option>' +
+    cats.map((c) => `<option value="${escAttr(c)}">${esc(c)}</option>`).join("");
+  if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  else sel.value = "";
+}
+
 /** Itens da planilha com filtro por loja (linhas ocultas = a loja não usa). */
 function idsProdutosVisiveisLoja(lojaId) {
   const lista = state?.produtosPorLoja?.[lojaId];
@@ -1295,8 +1389,14 @@ function gotoEstoqueValidade(lojaId, busca, produtoId, { openLotes = false } = {
   if (pid) {
     requestAnimationFrame(() => {
       const highlight = () => {
-        const tr = document.querySelector(`#table-estoque tr[data-pid="${pid}"]`);
-        const card = document.querySelector(`.estoque-card[data-pid="${pid}"]`);
+        const tr = document.querySelector(`#estoque-acordeoes tr[data-pid="${pid}"]`);
+        const card = document.querySelector(`#estoque-acordeoes .estoque-card[data-pid="${pid}"]`);
+        const acc = (tr || card)?.closest("details.estoque-acc");
+        if (acc && !acc.open) {
+          acc.open = true;
+          const key = acc.dataset.cat;
+          if (key) estoqueAccOpen.add(key);
+        }
         document.querySelectorAll(".row-highlight, .estoque-card-highlight").forEach((el) => {
           el.classList.remove("row-highlight", "estoque-card-highlight");
         });
@@ -1776,8 +1876,12 @@ function openLotesModal(lojaId, produtoId) {
 }
 
 function melhorCotacao(produtoId, { exigirOk = true } = {}) {
+  const isPerso = isProdutoPersonalizado(produtoId);
   let best = null;
   getFornecedores().forEach((f) => {
+    // PERSONALIZADOS: só disputa com o fornecedor dedicado (planilha RESULTADO oculta esses itens da briga Amorix/Oesa/…)
+    if (isPerso && f.id !== FORN_PERSONALIZADOS_ID) return;
+    if (!isPerso && f.id === FORN_PERSONALIZADOS_ID) return;
     const c = state.cotacoes[f.id]?.[produtoId];
     if (!c || Number(c.preco) <= 0) return;
     if (exigirOk && String(c.status).toUpperCase() !== "OK") return;
@@ -2004,7 +2108,9 @@ function setItemOcultoFornecedor(fid, produtoId, oculto) {
 function setTodosItensOcultosFornecedor(fid, ocultar) {
   if (!fid) return;
   if (!state.fornecedorItensOcultos) state.fornecedorItensOcultos = {};
-  state.fornecedorItensOcultos[fid] = ocultar ? produtosAtivos().map((p) => p.id) : [];
+  state.fornecedorItensOcultos[fid] = ocultar
+    ? produtosParaCotacaoFornecedor(fid).map((p) => p.id)
+    : [];
 }
 
 function populateLoginUsers() {
@@ -2157,9 +2263,17 @@ function setupRoleFilters() {
     '<option value="">Todas as categorias</option>' +
     categorias().map((c) => `<option value="${escAttr(c)}">${esc(c)}</option>`).join("");
   document.getElementById("filter-categoria").innerHTML = catOpts;
-  document.getElementById("filter-cot-categoria").innerHTML = catOpts;
+  populateCotCategoriaFilter(
+    session.role === "fornecedor" ? session.fornecedorId : document.getElementById("filter-fornecedor")?.value
+  );
   const contCat = document.getElementById("filter-contagem-categoria");
   if (contCat) contCat.innerHTML = catOpts;
+  const valCat = document.getElementById("filter-valores-categoria");
+  if (valCat) {
+    const prevValCat = valCat.value;
+    valCat.innerHTML = catOpts;
+    if (prevValCat && [...valCat.options].some((o) => o.value === prevValCat)) valCat.value = prevValCat;
+  }
 
   const contLoja = document.getElementById("filter-contagem-loja");
   if (contLoja) {
@@ -2404,16 +2518,20 @@ function renderItensCotacaoFornecedor() {
   const fid = session.fornecedorId;
   const busca = (document.getElementById("filter-itens-cotacao-busca")?.value || "").toLowerCase();
   const ocultos = new Set(getItensOcultosFornecedor(fid));
-  const items = produtosAtivos()
+  const items = produtosParaCotacaoFornecedor(fid)
     .filter((p) => !busca || p.nome.toLowerCase().includes(busca) || p.categoria.toLowerCase().includes(busca))
     .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 
-  const nOcultos = ocultos.size;
+  const nOcultos = items.filter((p) => ocultos.has(p.id)).length;
   const meta = document.getElementById("config-itens-cotacao-meta");
   if (meta) {
+    const escopo =
+      fid === FORN_PERSONALIZADOS_ID
+        ? "Só itens da categoria PERSONALIZADOS (como na planilha)."
+        : "Itens PERSONALIZADOS ficam só com o fornecedor Personalizados.";
     meta.textContent = nOcultos
-      ? `${nOcultos} item(ns) oculto(s) — não aparecem na Cotação`
-      : "Todos os itens ativos aparecem na Cotação";
+      ? `${nOcultos} item(ns) oculto(s) — não aparecem na Cotação. ${escopo}`
+      : `${items.length} item(ns) neste escopo. ${escopo}`;
   }
 
   listEl.innerHTML = items.length
@@ -3530,9 +3648,8 @@ function renderEstoque() {
   const soBaixo = document.getElementById("filter-so-baixo").checked;
   const incluirInativos = document.getElementById("filter-estoque-inativos")?.checked;
   const incluirOcultos = document.getElementById("filter-estoque-ocultos")?.checked === true;
-  const tbody = document.querySelector("#table-estoque tbody");
+  const host = document.getElementById("estoque-acordeoes");
   const cardsEl = document.getElementById("estoque-cards");
-  const tableWrap = document.querySelector("#view-estoque .table-wrap");
   const canEdit = session.role === "admin" || (session.role === "loja" && session.lojaId === lojaId);
   const canMinimoFab = lojaId === "fabrica" && canEditMinimoFabrica();
   const crudCentral = canManageProdutos() && lojaId === "central";
@@ -3541,12 +3658,14 @@ function renderEstoque() {
 
   const btnAdd = document.getElementById("btn-estoque-add-produto");
   const wrapInativos = document.getElementById("wrap-estoque-inativos");
-  const colAcoes = document.querySelector("#table-estoque .col-prod-acoes");
   const hintFab = document.getElementById("estoque-minimo-hint");
   if (btnAdd) btnAdd.classList.toggle("hidden", !crudCentral);
   if (wrapInativos) wrapInativos.classList.toggle("hidden", !crudCentral);
-  if (colAcoes) colAcoes.classList.toggle("hidden", !crudCentral && !(canEdit && incluirOcultos));
   if (hintFab) hintFab.classList.toggle("hidden", !(lojaId === "fabrica" && canMinimoFab));
+  if (cardsEl) cardsEl.classList.add("hidden");
+  if (!host) return;
+
+  syncAccOpenFromDom(host, estoqueAccOpen, ".estoque-acc");
 
   const lista =
     crudCentral && incluirInativos
@@ -3575,129 +3694,144 @@ function renderEstoque() {
 
   const showFabMin = lojaId === "fabrica";
   const showAcoesVis = canEdit && (crudCentral || incluirOcultos);
-  if (colAcoes) colAcoes.classList.toggle("hidden", !showAcoesVis);
-  const colSpan = (showAcoesVis ? 9 : 8) + (showFabMin ? 1 : 0);
 
-  if (tableWrap) tableWrap.classList.toggle("hidden", useCards);
-  if (cardsEl) {
-    cardsEl.classList.toggle("hidden", !useCards);
-    if (useCards) {
-      cardsEl.innerHTML = rows.length
-        ? rows
-            .map(({ p, e, st }) => {
-              const statusLabel = st === "baixo" ? "Abaixo" : st === "atencao" ? "Atenção" : "OK";
-              return `<button type="button" class="estoque-card row-${st}" data-pid="${p.id}">
-                <div class="estoque-card-top">
-                  <strong>${esc(p.nome)}</strong>
-                  <span class="badge badge-${st === "baixo" ? "baixo" : "ok"}">${statusLabel}</span>
-                </div>
-                <div class="estoque-card-meta">
-                  <span>Saldo <strong>${formatNum(e.saldo)}</strong> ${esc(p.unidade || "")}</span>
-                  <span>Mín ${formatNum(e.minimo)}</span>
-                </div>
-              </button>`;
-            })
-            .join("")
-        : '<p class="empty-state">Nenhum produto encontrado</p>';
-      cardsEl.querySelectorAll(".estoque-card[data-pid]").forEach((card) => {
-        card.addEventListener("click", () => openEstoqueCardEditor(lojaId, card.dataset.pid));
-      });
-    }
+  const byCat = new Map();
+  rows.forEach((row) => {
+    const key = row.p.categoria || "Sem categoria";
+    if (!byCat.has(key)) byCat.set(key, []);
+    byCat.get(key).push(row);
+  });
+  const sortedCats = sortedCategoriaKeys(byCat.keys());
+
+  const rowHtml = ({ p, e, st, oculto }) => {
+    const dis = canEdit ? "" : "disabled";
+    const temReceita = showFabMin && hasReceitaFabrica(p.id);
+    const modo = temReceita ? minimoModoFabrica(e, p.id) : showFabMin ? "fixo" : null;
+    const isManual = temReceita && modo === "fixo";
+    const isAuto = temReceita && modo === "formula";
+    const disMin = !canEdit || isAuto ? "disabled" : "";
+    const disModo = canMinimoFab ? "" : "disabled";
+    const nLotes = (e.lotes || []).length;
+    const somaLotes = somaQtdeLotes(e);
+    const saldoNum = Number(e.saldo) || 0;
+    const lotesMismatch = nLotes > 0 && Math.abs(somaLotes - saldoNum) > 1e-6;
+    const lotesLabel = nLotes ? `${nLotes} lote${nLotes > 1 ? "s" : ""}` : "Gerenciar";
+    const skuBit = p.sku ? `<span class="muted-sm"> · ${esc(p.sku)}</span>` : "";
+    const modoCell = showFabMin
+      ? `<td class="td-min-modo">
+          <div class="min-modo-controls">
+            ${badgeMinimoModoHtml(modo || "fixo")}
+            ${
+              temReceita
+                ? `<select class="min-modo-select" data-min-modo="${p.id}" ${disModo} title="Modo do estoque mínimo">
+                     <option value="formula" ${isAuto ? "selected" : ""}>Fórmula</option>
+                     <option value="fixo" ${isManual ? "selected" : ""}>Fixo</option>
+                   </select>
+                   <button class="btn btn-ghost btn-sm" data-min-formula="${p.id}" type="button" ${disModo} title="${escAttr(descricaoReceitaFabrica(p.id))}">Editar…</button>`
+                : ""
+            }
+          </div>
+        </td>`
+      : "";
+    const acoesVis = showAcoesVis
+      ? `<td class="td-acoes">
+          ${
+            crudCentral
+              ? `<button class="btn btn-ghost btn-sm" data-edit-prod="${p.id}" type="button">Editar</button>
+          ${
+            p.ativo
+              ? `<button class="btn-danger btn-sm" data-del-prod="${p.id}" type="button">Excluir</button>`
+              : `<button class="btn btn-sm" data-react-prod="${p.id}" type="button">Reativar</button>`
+          }`
+              : ""
+          }
+          ${
+            incluirOcultos
+              ? `<button class="btn btn-ghost btn-sm" data-toggle-vis="${p.id}" data-incluir="${oculto ? "1" : "0"}" type="button">${oculto ? "Usar nesta loja" : "Ocultar na loja"}</button>`
+              : ""
+          }
+        </td>`
+      : "";
+    return `<tr class="row-${st}${p.ativo === false ? " row-inativo" : ""}${oculto ? " row-oculto" : ""}" data-pid="${p.id}">
+      <td class="col-sticky-produto"><strong>${esc(p.nome)}</strong>${skuBit}${p.ativo === false ? ' <span class="badge badge-inativo">Inativo</span>' : ""}${oculto ? ' <span class="badge badge-inativo">oculto</span>' : ""}</td>
+      <td>${esc(p.unidade)}</td>
+      <td><input class="cell-input" data-field="saldo" ${dis} step="any" type="number" value="${e.saldo}" /></td>
+      <td>
+        <input class="cell-input cell-minimo ${isAuto ? "cell-lilas" : ""}" data-field="minimo" ${disMin} step="any" type="number" value="${e.minimo}" title="${isAuto ? "Calculado pela fórmula — mude o modo para Fixo para editar" : "Estoque mínimo"}" />
+      </td>
+      ${modoCell}
+      <td><input class="cell-input" data-field="envio" ${dis} step="any" type="number" value="${e.envio}" /></td>
+      <td class="td-lotes">
+        <button class="btn btn-ghost btn-sm" data-lotes="${p.id}" type="button">${esc(lotesLabel)}</button>
+        ${lotesMismatch ? `<span class="lotes-mismatch" title="Soma dos lotes difere do saldo">Σ ${formatNum(somaLotes)}</span>` : ""}
+      </td>
+      <td><span class="badge badge-${st === "baixo" ? "baixo" : "ok"}">${st === "baixo" ? "Baixo" : st === "atencao" ? "Atenção" : "OK"}</span></td>
+      ${acoesVis}
+    </tr>`;
+  };
+
+  const cardHtml = ({ p, e, st }) => {
+    const statusLabel = st === "baixo" ? "Abaixo" : st === "atencao" ? "Atenção" : "OK";
+    return `<button type="button" class="estoque-card row-${st}" data-pid="${p.id}">
+      <div class="estoque-card-top">
+        <strong>${esc(p.nome)}</strong>
+        <span class="badge badge-${st === "baixo" ? "baixo" : "ok"}">${statusLabel}</span>
+      </div>
+      <div class="estoque-card-meta">
+        <span>Saldo <strong>${formatNum(e.saldo)}</strong> ${esc(p.unidade || "")}</span>
+        <span>Mín ${formatNum(e.minimo)}</span>
+      </div>
+    </button>`;
+  };
+
+  const theadCols = `
+    <th class="col-sticky-produto">Produto</th>
+    <th>UN</th>
+    <th>Saldo</th>
+    <th>Mínimo</th>
+    ${showFabMin ? '<th class="col-min-modo">Modo mín.</th>' : ""}
+    <th>Envio</th>
+    <th>Lotes</th>
+    <th>Status</th>
+    ${showAcoesVis ? '<th class="col-prod-acoes">Ações</th>' : ""}`;
+
+  if (!sortedCats.length) {
+    host.innerHTML = '<p class="empty-state">Nenhum produto encontrado</p>';
+  } else {
+    host.innerHTML = sortedCats
+      .map((catName) => {
+        const items = byCat.get(catName);
+        const open = accOpenAttr(cat, catName, estoqueAccOpen);
+        const body = useCards
+          ? `<div class="estoque-cards">${items.map(cardHtml).join("")}</div>`
+          : `<div class="table-wrap">
+              <table class="data-table sticky-produto">
+                <thead><tr>${theadCols}</tr></thead>
+                <tbody>${items.map(rowHtml).join("")}</tbody>
+              </table>
+            </div>`;
+        return `<details class="cat-acc estoque-acc" data-cat="${escAttr(catName)}" ${open}>
+          <summary>
+            <span class="cat-acc-chevron" aria-hidden="true">▸</span>
+            <span class="cat-acc-title">${esc(catName)}</span>
+            <span class="cat-acc-count">${items.length}</span>
+          </summary>
+          ${body}
+        </details>`;
+      })
+      .join("");
   }
 
-  // Adjust header for fábrica modo column
-  const thMin = [...document.querySelectorAll("#table-estoque thead th")].find((th) => th.textContent.trim() === "Mínimo");
-  let thModo = document.querySelector("#table-estoque thead .col-min-modo");
-  if (showFabMin) {
-    if (!thModo && thMin) {
-      thModo = document.createElement("th");
-      thModo.className = "col-min-modo";
-      thModo.textContent = "Modo mín.";
-      thMin.after(thModo);
-    }
-  } else if (thModo) {
-    thModo.remove();
-  }
+  bindAccToggle(host, estoqueAccOpen, ".estoque-acc");
 
-  if (!tbody) return;
   if (useCards) {
-    tbody.innerHTML = "";
+    host.querySelectorAll(".estoque-card[data-pid]").forEach((card) => {
+      card.addEventListener("click", () => openEstoqueCardEditor(lojaId, card.dataset.pid));
+    });
     return;
   }
 
-  tbody.innerHTML = rows.length
-    ? rows
-        .map(({ p, e, st, oculto }) => {
-          const dis = canEdit ? "" : "disabled";
-          const temReceita = showFabMin && hasReceitaFabrica(p.id);
-          const modo = temReceita ? minimoModoFabrica(e, p.id) : showFabMin ? "fixo" : null;
-          const isManual = temReceita && modo === "fixo";
-          const isAuto = temReceita && modo === "formula";
-          const disMin = !canEdit || isAuto ? "disabled" : "";
-          const disModo = canMinimoFab ? "" : "disabled";
-          const nLotes = (e.lotes || []).length;
-          const somaLotes = somaQtdeLotes(e);
-          const saldoNum = Number(e.saldo) || 0;
-          const lotesMismatch = nLotes > 0 && Math.abs(somaLotes - saldoNum) > 1e-6;
-          const lotesLabel = nLotes ? `${nLotes} lote${nLotes > 1 ? "s" : ""}` : "Gerenciar";
-          const skuBit = p.sku ? `<span class="muted-sm"> · ${esc(p.sku)}</span>` : "";
-          const modoCell = showFabMin
-            ? `<td class="td-min-modo">
-                <div class="min-modo-controls">
-                  ${badgeMinimoModoHtml(modo || "fixo")}
-                  ${
-                    temReceita
-                      ? `<select class="min-modo-select" data-min-modo="${p.id}" ${disModo} title="Modo do estoque mínimo">
-                           <option value="formula" ${isAuto ? "selected" : ""}>Fórmula</option>
-                           <option value="fixo" ${isManual ? "selected" : ""}>Fixo</option>
-                         </select>
-                         <button class="btn btn-ghost btn-sm" data-min-formula="${p.id}" type="button" ${disModo} title="${escAttr(descricaoReceitaFabrica(p.id))}">Editar…</button>`
-                      : ""
-                  }
-                </div>
-              </td>`
-            : "";
-          const acoesVis = showAcoesVis
-            ? `<td class="td-acoes">
-                ${
-                  crudCentral
-                    ? `<button class="btn btn-ghost btn-sm" data-edit-prod="${p.id}" type="button">Editar</button>
-                ${
-                  p.ativo
-                    ? `<button class="btn-danger btn-sm" data-del-prod="${p.id}" type="button">Excluir</button>`
-                    : `<button class="btn btn-sm" data-react-prod="${p.id}" type="button">Reativar</button>`
-                }`
-                    : ""
-                }
-                ${
-                  incluirOcultos
-                    ? `<button class="btn btn-ghost btn-sm" data-toggle-vis="${p.id}" data-incluir="${oculto ? "1" : "0"}" type="button">${oculto ? "Usar nesta loja" : "Ocultar na loja"}</button>`
-                    : ""
-                }
-              </td>`
-            : "";
-          return `<tr class="row-${st}${p.ativo === false ? " row-inativo" : ""}${oculto ? " row-oculto" : ""}" data-pid="${p.id}">
-          <td class="col-sticky-produto"><strong>${esc(p.nome)}</strong>${skuBit}${p.ativo === false ? ' <span class="badge badge-inativo">Inativo</span>' : ""}${oculto ? ' <span class="badge badge-inativo">oculto</span>' : ""}</td>
-          <td>${esc(p.categoria)}</td>
-          <td>${esc(p.unidade)}</td>
-          <td><input class="cell-input" data-field="saldo" ${dis} step="any" type="number" value="${e.saldo}" /></td>
-          <td>
-            <input class="cell-input cell-minimo ${isAuto ? "cell-lilas" : ""}" data-field="minimo" ${disMin} step="any" type="number" value="${e.minimo}" title="${isAuto ? "Calculado pela fórmula — mude o modo para Fixo para editar" : "Estoque mínimo"}" />
-          </td>
-          ${modoCell}
-          <td><input class="cell-input" data-field="envio" ${dis} step="any" type="number" value="${e.envio}" /></td>
-          <td class="td-lotes">
-            <button class="btn btn-ghost btn-sm" data-lotes="${p.id}" type="button">${esc(lotesLabel)}</button>
-            ${lotesMismatch ? `<span class="lotes-mismatch" title="Soma dos lotes difere do saldo">Σ ${formatNum(somaLotes)}</span>` : ""}
-          </td>
-          <td><span class="badge badge-${st === "baixo" ? "baixo" : "ok"}">${st === "baixo" ? "Baixo" : st === "atencao" ? "Atenção" : "OK"}</span></td>
-          ${acoesVis}
-        </tr>`;
-        })
-        .join("")
-    : `<tr><td colspan="${colSpan}" class="empty-state">Nenhum produto encontrado</td></tr>`;
-
-  tbody.querySelectorAll("tr[data-pid]").forEach((tr) => {
+  host.querySelectorAll("tr[data-pid]").forEach((tr) => {
     const pid = tr.dataset.pid;
     tr.querySelectorAll("[data-field]").forEach((input) => {
       input.addEventListener("change", () => {
@@ -3751,11 +3885,11 @@ function renderEstoque() {
     });
   });
 
-  tbody.querySelectorAll("[data-lotes]").forEach((btn) => {
+  host.querySelectorAll("[data-lotes]").forEach((btn) => {
     btn.addEventListener("click", () => openLotesModal(lojaId, btn.dataset.lotes));
   });
 
-  tbody.querySelectorAll("[data-min-modo]").forEach((sel) => {
+  host.querySelectorAll("[data-min-modo]").forEach((sel) => {
     sel.addEventListener("change", () => {
       const pid = sel.dataset.minModo;
       const done = setMinimoModoFabrica(pid, sel.value);
@@ -3767,17 +3901,17 @@ function renderEstoque() {
       renderEstoque();
     });
   });
-  tbody.querySelectorAll("[data-min-formula]").forEach((btn) => {
+  host.querySelectorAll("[data-min-formula]").forEach((btn) => {
     btn.addEventListener("click", () => openMinimoFabricaModal(btn.dataset.minFormula));
   });
 
-  tbody.querySelectorAll("[data-edit-prod]").forEach((btn) => {
+  host.querySelectorAll("[data-edit-prod]").forEach((btn) => {
     btn.addEventListener("click", () => openProdutoModal(btn.dataset.editProd));
   });
-  tbody.querySelectorAll("[data-del-prod]").forEach((btn) => {
+  host.querySelectorAll("[data-del-prod]").forEach((btn) => {
     btn.addEventListener("click", () => confirmDeleteProduto(btn.dataset.delProd));
   });
-  tbody.querySelectorAll("[data-react-prod]").forEach((btn) => {
+  host.querySelectorAll("[data-react-prod]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const p = getProduto(btn.dataset.reactProd);
       if (!p) return;
@@ -3787,7 +3921,7 @@ function renderEstoque() {
       renderEstoque();
     });
   });
-  tbody.querySelectorAll("[data-toggle-vis]").forEach((btn) => {
+  host.querySelectorAll("[data-toggle-vis]").forEach((btn) => {
     btn.addEventListener("click", () => {
       toggleProdutoNaLoja(lojaId, btn.dataset.toggleVis, btn.dataset.incluir === "1");
       renderEstoque();
@@ -4328,23 +4462,26 @@ function renderCotacao() {
     }
   }
   const hint = document.getElementById("cotacao-hint");
-  if (hint && session.role === "fornecedor") {
-    hint.textContent = fornecedorBloqueado
-      ? agenda.banner || "Cotação travada — edição desabilitada."
-      : `Você está cotando como ${session.nome}. Só esta cotação é editável.`;
+  if (hint) {
+    if (session.role === "fornecedor") {
+      hint.textContent = fornecedorBloqueado
+        ? agenda.banner || "Cotação travada — edição desabilitada."
+        : fid === FORN_PERSONALIZADOS_ID
+          ? `Você está cotando como ${session.nome}. Só itens PERSONALIZADOS (aba dedicada da planilha).`
+          : `Você está cotando como ${session.nome}. Itens PERSONALIZADOS não entram nesta cotação.`;
+    } else if (fid === FORN_PERSONALIZADOS_ID) {
+      hint.textContent =
+        "Fornecedor Personalizados: só categoria PERSONALIZADOS (compra dedicada da planilha, sem disputa com Amorix/Oesa/Garra/Rei).";
+    }
   }
 
-  // sync open state before rebuild
-  host.querySelectorAll(".cotacao-acc").forEach((el) => {
-    const key = el.dataset.cat;
-    if (!key) return;
-    if (el.open) cotacaoAccOpen.add(key);
-    else cotacaoAccOpen.delete(key);
-  });
+  populateCotCategoriaFilter(fid);
+
+  syncAccOpenFromDom(host, cotacaoAccOpen, ".cotacao-acc");
 
   // sync qtde from necessidade (mín − atual) for admin convenience
   let totalOk = 0;
-  const rows = produtosAtivos()
+  const rows = produtosParaCotacaoFornecedor(fid)
     .filter((p) => !ocultos || !ocultos.has(p.id))
     .filter((p) => !cat || p.categoria === cat)
     .filter((p) => !busca || p.nome.toLowerCase().includes(busca))
@@ -4370,15 +4507,7 @@ function renderCotacao() {
     if (!byCat.has(key)) byCat.set(key, []);
     byCat.get(key).push(row);
   });
-  const catOrder = categorias();
-  const sortedCats = [...byCat.keys()].sort((a, b) => {
-    const ia = catOrder.indexOf(a);
-    const ib = catOrder.indexOf(b);
-    const sa = ia === -1 ? 9999 : ia;
-    const sb = ib === -1 ? 9999 : ib;
-    if (sa !== sb) return sa - sb;
-    return a.localeCompare(b, "pt-BR");
-  });
+  const sortedCats = sortedCategoriaKeys(byCat.keys());
 
   const rowHtml = ({ p, c }) => {
     if (String(c.status).toUpperCase() === "OK") totalOk += Number(c.qtde) * Number(c.preco);
@@ -4398,14 +4527,12 @@ function renderCotacao() {
     host.innerHTML = sortedCats
       .map((catName) => {
         const items = byCat.get(catName);
-        // Filtrado por uma categoria: abre; senão respeita Set (padrão fechado)
-        const open = cat && cat === catName ? true : cotacaoAccOpen.has(catName);
-        if (open) cotacaoAccOpen.add(catName);
-        return `<details class="cotacao-acc" data-cat="${escAttr(catName)}" ${open ? "open" : ""}>
+        const open = accOpenAttr(cat, catName, cotacaoAccOpen);
+        return `<details class="cat-acc cotacao-acc" data-cat="${escAttr(catName)}" ${open}>
           <summary>
-            <span class="cotacao-acc-chevron" aria-hidden="true">▸</span>
-            <span class="cotacao-acc-title">${esc(catName)}</span>
-            <span class="cotacao-acc-count">${items.length}</span>
+            <span class="cat-acc-chevron cotacao-acc-chevron" aria-hidden="true">▸</span>
+            <span class="cat-acc-title cotacao-acc-title">${esc(catName)}</span>
+            <span class="cat-acc-count cotacao-acc-count">${items.length}</span>
           </summary>
           <div class="table-wrap">
             <table class="data-table">
@@ -4428,14 +4555,7 @@ function renderCotacao() {
 
   document.getElementById("cotacao-total").textContent = formatMoney(totalOk);
 
-  host.querySelectorAll(".cotacao-acc").forEach((el) => {
-    el.addEventListener("toggle", () => {
-      const key = el.dataset.cat;
-      if (!key) return;
-      if (el.open) cotacaoAccOpen.add(key);
-      else cotacaoAccOpen.delete(key);
-    });
-  });
+  bindAccToggle(host, cotacaoAccOpen, ".cotacao-acc");
 
   host.querySelectorAll("tr[data-pid]").forEach((tr) => {
     const pid = tr.dataset.pid;
@@ -4458,7 +4578,10 @@ function renderCotacao() {
 function qtdeCompraProduto(produtoId) {
   const need = qtdeComprarProduto(produtoId).comprar;
   let qtde = need;
+  const isPerso = isProdutoPersonalizado(produtoId);
   getFornecedores().forEach((f) => {
+    if (isPerso && f.id !== FORN_PERSONALIZADOS_ID) return;
+    if (!isPerso && f.id === FORN_PERSONALIZADOS_ID) return;
     const c = state.cotacoes[f.id]?.[produtoId];
     if (c && Number(c.qtde) > qtde) qtde = Number(c.qtde);
   });
@@ -4525,6 +4648,9 @@ function renderResultado() {
 
           const prices = fornecedores
             .map((f) => {
+              if (!produtoVisivelNaCotacaoFornecedor(p, f.id)) {
+                return '<td class="cell-muted" title="Fora do escopo deste fornecedor">—</td>';
+              }
               const c = state.cotacoes[f.id]?.[p.id];
               if (!c || !Number(c.preco)) return "<td>—</td>";
               const isWin = best && best.fornecedorId === f.id;
@@ -5299,7 +5425,12 @@ function renderValoresEstoque() {
 
   let subtotal = 0;
   const linhas = [];
+  const catFiltro = document.getElementById("filter-valores-categoria")?.value || "";
+  const hostVal = document.getElementById("valores-acordeoes");
+  if (hostVal) syncAccOpenFromDom(hostVal, valoresAccOpen, ".valores-acc");
+
   produtosAtivos()
+    .filter((p) => !catFiltro || p.categoria === catFiltro)
     .filter(
       (p) =>
         !busca ||
@@ -5321,15 +5452,18 @@ function renderValoresEstoque() {
       linhas.push({ p, saldo, info, preco, valor, idx });
     });
 
-  const tbodyItens = document.querySelector("#table-valores-itens tbody");
-  if (!tbodyItens) return;
-  tbodyItens.innerHTML = linhas.length
-    ? linhas
-        .map(({ p, saldo, info, preco, valor, idx }) => {
-          const idxCls = idx == null ? "" : idx > 0 ? "kpi-danger" : idx < 0 ? "kpi-success" : "";
-          return `<tr class="${preco <= 0 && saldo > 0 ? "row-atencao" : ""}">
+  const byCat = new Map();
+  linhas.forEach((row) => {
+    const key = row.p.categoria || "Sem categoria";
+    if (!byCat.has(key)) byCat.set(key, []);
+    byCat.get(key).push(row);
+  });
+  const sortedCats = sortedCategoriaKeys(byCat.keys());
+
+  const rowHtml = ({ p, saldo, info, preco, valor, idx }) => {
+    const idxCls = idx == null ? "" : idx > 0 ? "kpi-danger" : idx < 0 ? "kpi-success" : "";
+    return `<tr class="${preco <= 0 && saldo > 0 ? "row-atencao" : ""}">
       <td><strong>${esc(p.nome)}</strong></td>
-      <td>${esc(p.categoria)}</td>
       <td>${esc(p.unidade)}</td>
       <td>${formatNum(saldo)}</td>
       <td>${preco > 0 ? formatMoney(preco) : "—"}</td>
@@ -5337,9 +5471,47 @@ function renderValoresEstoque() {
       <td><strong>${preco > 0 ? formatMoney(valor) : "—"}</strong></td>
       <td class="${idxCls}">${formatPct(idx)}</td>
     </tr>`;
+  };
+
+  if (hostVal) {
+    if (!sortedCats.length) {
+      hostVal.innerHTML = '<p class="empty-state">Nenhum item neste filtro</p>';
+    } else {
+      hostVal.innerHTML = sortedCats
+        .map((catName) => {
+          const items = byCat.get(catName);
+          const open = accOpenAttr(catFiltro, catName, valoresAccOpen);
+          const catValor = items.reduce((s, r) => s + (r.preco > 0 ? r.valor : 0), 0);
+          return `<details class="cat-acc valores-acc" data-cat="${escAttr(catName)}" ${open}>
+            <summary>
+              <span class="cat-acc-chevron" aria-hidden="true">▸</span>
+              <span class="cat-acc-title">${esc(catName)}</span>
+              <span class="cat-acc-count">${items.length}</span>
+              <span class="cat-acc-count">${formatMoney(catValor)}</span>
+            </summary>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Produto</th>
+                    <th>UN</th>
+                    <th>Saldo</th>
+                    <th>Preço ref.</th>
+                    <th>Fonte</th>
+                    <th>Valor</th>
+                    <th>Δ vs base</th>
+                  </tr>
+                </thead>
+                <tbody>${items.map(rowHtml).join("")}</tbody>
+              </table>
+            </div>
+          </details>`;
         })
-        .join("")
-    : '<tr><td colspan="8" class="empty-state">Nenhum item neste filtro</td></tr>';
+        .join("");
+    }
+    bindAccToggle(hostVal, valoresAccOpen, ".valores-acc");
+  }
+
   const sub = document.getElementById("valores-subtotal");
   if (sub) sub.textContent = formatMoney(subtotal);
 }
@@ -7002,7 +7174,7 @@ function initEvents() {
     if (!can("producao") || !canEditProducaoFabrica()) return;
     concluirProducaoItens(listItensProducaoParaConcluirLote());
   });
-  ["filter-valores-loja", "filter-valores-busca", "filter-valores-so-saldo"].forEach((id) => {
+  ["filter-valores-loja", "filter-valores-categoria", "filter-valores-busca", "filter-valores-so-saldo"].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener("input", () => can("valores") && renderValoresEstoque());

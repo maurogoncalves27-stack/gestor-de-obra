@@ -1041,20 +1041,29 @@ body.has-table-hscroll .content {
   border-bottom: none;
 }
 
-/* Cotação — sanfona por categoria */
-.cotacao-acordeoes {
+/* Sanfona por categoria (Cotação / Estoque / Valores) */
+.cat-acordeoes,
+.cotacao-acordeoes,
+.estoque-acordeoes,
+.valores-acordeoes {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
-.cotacao-acc {
+.cat-acc,
+.cotacao-acc,
+.estoque-acc,
+.valores-acc {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-card);
   overflow: hidden;
   box-shadow: var(--shadow);
 }
-.cotacao-acc > summary {
+.cat-acc > summary,
+.cotacao-acc > summary,
+.estoque-acc > summary,
+.valores-acc > summary {
   display: flex;
   align-items: center;
   gap: 0.65rem;
@@ -1067,13 +1076,26 @@ body.has-table-hscroll .content {
   border-bottom: 1px solid transparent;
   transition: background 0.12s ease;
 }
-.cotacao-acc > summary::-webkit-details-marker { display: none; }
-.cotacao-acc > summary::marker { content: ""; }
-.cotacao-acc > summary:hover { background: var(--bg-hover); }
-.cotacao-acc[open] > summary {
+.cat-acc > summary::-webkit-details-marker,
+.cotacao-acc > summary::-webkit-details-marker,
+.estoque-acc > summary::-webkit-details-marker,
+.valores-acc > summary::-webkit-details-marker { display: none; }
+.cat-acc > summary::marker,
+.cotacao-acc > summary::marker,
+.estoque-acc > summary::marker,
+.valores-acc > summary::marker { content: ""; }
+.cat-acc > summary:hover,
+.cotacao-acc > summary:hover,
+.estoque-acc > summary:hover,
+.valores-acc > summary:hover { background: var(--bg-hover); }
+.cat-acc[open] > summary,
+.cotacao-acc[open] > summary,
+.estoque-acc[open] > summary,
+.valores-acc[open] > summary {
   border-bottom-color: var(--border);
   background: var(--accent-soft);
 }
+.cat-acc-chevron,
 .cotacao-acc-chevron {
   flex-shrink: 0;
   width: 1.1rem;
@@ -1081,8 +1103,13 @@ body.has-table-hscroll .content {
   font-size: 0.75rem;
   transition: transform 0.15s ease;
 }
-.cotacao-acc[open] .cotacao-acc-chevron { transform: rotate(90deg); }
+.cat-acc[open] .cat-acc-chevron,
+.cotacao-acc[open] .cotacao-acc-chevron,
+.estoque-acc[open] .cat-acc-chevron,
+.valores-acc[open] .cat-acc-chevron { transform: rotate(90deg); }
+.cat-acc-title,
 .cotacao-acc-title { flex: 1; min-width: 0; }
+.cat-acc-count,
 .cotacao-acc-count {
   flex-shrink: 0;
   font-size: 0.78rem;
@@ -1093,14 +1120,25 @@ body.has-table-hscroll .content {
   border-radius: 999px;
   padding: 0.15rem 0.55rem;
 }
-.cotacao-acc .table-wrap {
+.cat-acc .table-wrap,
+.cotacao-acc .table-wrap,
+.estoque-acc .table-wrap,
+.valores-acc .table-wrap {
   border: none;
   border-radius: 0;
   max-height: min(60vh, 520px);
   overflow: auto;
 }
-.cotacao-acc .data-table { margin: 0; }
-.cotacao-total-bar {
+.cat-acc .data-table,
+.cotacao-acc .data-table,
+.estoque-acc .data-table,
+.valores-acc .data-table { margin: 0; }
+.cat-acc .estoque-cards {
+  padding: 0.65rem;
+  gap: 0.5rem;
+}
+.cotacao-total-bar,
+.valores-subtotal-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1112,7 +1150,8 @@ body.has-table-hscroll .content {
   border-radius: var(--radius);
   font-weight: 600;
 }
-.cotacao-total-bar #cotacao-total {
+.cotacao-total-bar #cotacao-total,
+.valores-subtotal-bar #valores-subtotal {
   font-size: 1.05rem;
   color: var(--accent);
 }
