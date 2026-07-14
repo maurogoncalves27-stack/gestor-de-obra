@@ -201,6 +201,7 @@ function defaultState(seed) {
     solicitacoesEmergencia: [],
     historicoPrecos: [],
     enviosAplicados: {},
+    fornecedorItensOcultos: {},
   };
 }
 
@@ -214,6 +215,10 @@ function applyOperationalFromSeed(data, seed) {
   const historicoPrecos = Array.isArray(data.historicoPrecos) ? data.historicoPrecos : [];
   const enviosAplicados =
     data.enviosAplicados && typeof data.enviosAplicados === "object" ? data.enviosAplicados : {};
+  const fornecedorItensOcultos =
+    data.fornecedorItensOcultos && typeof data.fornecedorItensOcultos === "object"
+      ? data.fornecedorItensOcultos
+      : {};
   const lojas = data.lojas?.length ? data.lojas : fresh.lojas;
   const fornecedores = data.fornecedores?.length ? data.fornecedores : fresh.fornecedores;
 
@@ -231,6 +236,7 @@ function applyOperationalFromSeed(data, seed) {
   data.solicitacoesEmergencia = solicitacoesEmergencia;
   data.historicoPrecos = historicoPrecos;
   data.enviosAplicados = enviosAplicados;
+  data.fornecedorItensOcultos = fornecedorItensOcultos;
   data.seedVersion = seed?.seedVersion || "";
   return migrateState(data);
 }
@@ -269,6 +275,13 @@ function migrateState(data) {
   if (!Array.isArray(data.historicoPrecos)) data.historicoPrecos = [];
   if (!data.enviosAplicados || typeof data.enviosAplicados !== "object") data.enviosAplicados = {};
   if (!data.producoesAplicadas || typeof data.producoesAplicadas !== "object") data.producoesAplicadas = {};
+  if (!data.fornecedorItensOcultos || typeof data.fornecedorItensOcultos !== "object") {
+    data.fornecedorItensOcultos = {};
+  } else {
+    Object.keys(data.fornecedorItensOcultos).forEach((fid) => {
+      if (!Array.isArray(data.fornecedorItensOcultos[fid])) data.fornecedorItensOcultos[fid] = [];
+    });
+  }
   // Garante mapa de itens visíveis vindo do seed (filtro da planilha)
   if (seedCache?.produtosPorLoja) {
     Object.entries(seedCache.produtosPorLoja).forEach(([lid, ids]) => {
@@ -1120,6 +1133,32 @@ function fornScope() {
   return document.getElementById("filter-fornecedor")?.value || getFornecedores()[0]?.id || "";
 }
 
+/** IDs de produtos que este fornecedor ocultou da própria cotação (não remove do catálogo). */
+function getItensOcultosFornecedor(fid) {
+  if (!fid || !state?.fornecedorItensOcultos) return [];
+  const list = state.fornecedorItensOcultos[fid];
+  return Array.isArray(list) ? list : [];
+}
+
+function isItemOcultoFornecedor(fid, produtoId) {
+  return getItensOcultosFornecedor(fid).includes(produtoId);
+}
+
+function setItemOcultoFornecedor(fid, produtoId, oculto) {
+  if (!fid || !produtoId) return;
+  if (!state.fornecedorItensOcultos) state.fornecedorItensOcultos = {};
+  const set = new Set(getItensOcultosFornecedor(fid));
+  if (oculto) set.add(produtoId);
+  else set.delete(produtoId);
+  state.fornecedorItensOcultos[fid] = [...set];
+}
+
+function setTodosItensOcultosFornecedor(fid, ocultar) {
+  if (!fid) return;
+  if (!state.fornecedorItensOcultos) state.fornecedorItensOcultos = {};
+  state.fornecedorItensOcultos[fid] = ocultar ? produtosAtivos().map((p) => p.id) : [];
+}
+
 function populateLoginUsers() {
   const sel = document.getElementById("login-user");
   const groups = [
@@ -1252,6 +1291,8 @@ function setupRoleFilters() {
     fornSel.disabled = false;
     document.getElementById("cotacao-hint").textContent = "Selecione o fornecedor e preencha preços / status.";
   }
+  const btnItens = document.getElementById("btn-gerenciar-itens-cotacao");
+  if (btnItens) btnItens.classList.toggle("hidden", session.role !== "fornecedor");
 
   const catOpts =
     '<option value="">Todas as categorias</option>' +
@@ -1342,6 +1383,54 @@ function renderMinhaSenha() {
   }
 }
 
+function renderItensCotacaoFornecedor() {
+  const listEl = document.getElementById("config-itens-cotacao-list");
+  const wrap = document.getElementById("config-itens-cotacao-wrap");
+  if (!listEl || !wrap) return;
+  if (session?.role !== "fornecedor") {
+    wrap.classList.add("hidden");
+    return;
+  }
+  wrap.classList.remove("hidden");
+  const fid = session.fornecedorId;
+  const busca = (document.getElementById("filter-itens-cotacao-busca")?.value || "").toLowerCase();
+  const ocultos = new Set(getItensOcultosFornecedor(fid));
+  const items = produtosAtivos()
+    .filter((p) => !busca || p.nome.toLowerCase().includes(busca) || p.categoria.toLowerCase().includes(busca))
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+
+  const nOcultos = ocultos.size;
+  const meta = document.getElementById("config-itens-cotacao-meta");
+  if (meta) {
+    meta.textContent = nOcultos
+      ? `${nOcultos} item(ns) oculto(s) — não aparecem na Cotação`
+      : "Todos os itens ativos aparecem na Cotação";
+  }
+
+  listEl.innerHTML = items.length
+    ? items
+        .map((p) => {
+          const checked = !ocultos.has(p.id);
+          return `<label class="itens-cotacao-item">
+            <input type="checkbox" data-pid="${escAttr(p.id)}" ${checked ? "checked" : ""} />
+            <span class="itens-cotacao-item-body">
+              <strong>${esc(p.nome)}</strong>
+              <span>${esc(p.categoria)} · ${esc(p.unidade)}</span>
+            </span>
+          </label>`;
+        })
+        .join("")
+    : '<p class="empty-state">Nenhum produto encontrado</p>';
+
+  listEl.querySelectorAll('input[type="checkbox"][data-pid]').forEach((cb) => {
+    cb.addEventListener("change", () => {
+      setItemOcultoFornecedor(fid, cb.dataset.pid, !cb.checked);
+      scheduleSave();
+      renderItensCotacaoFornecedor();
+    });
+  });
+}
+
 function renderConfiguracoes() {
   const tabs = document.querySelector(".config-tabs");
   const panelConta = document.getElementById("config-panel-conta");
@@ -1352,13 +1441,15 @@ function renderConfiguracoes() {
       p.classList.toggle("hidden", p.dataset.configPanel !== "conta");
     });
     const sub = document.getElementById("view-subtitle");
-    if (sub) sub.textContent = "Alterar sua senha";
+    if (sub) sub.textContent = "Senha e itens da cotação";
     renderMinhaSenha();
+    renderItensCotacaoFornecedor();
     return;
   }
 
   tabs?.classList.remove("hidden");
   panelConta?.classList.add("hidden");
+  document.getElementById("config-itens-cotacao-wrap")?.classList.add("hidden");
   const meta = VIEW_META.configuracoes;
   if (meta) {
     const sub = document.getElementById("view-subtitle");
@@ -1390,7 +1481,9 @@ function renderDashboard() {
 
   if (session.role === "fornecedor") {
     const fid = session.fornecedorId;
+    const ocultos = new Set(getItensOcultosFornecedor(fid));
     ativos.forEach((p) => {
+      if (ocultos.has(p.id)) return;
       const c = state.cotacoes[fid]?.[p.id];
       if (c && Number(c.qtde) > 0 && (String(c.status).toUpperCase() !== "OK" || !Number(c.preco))) pendCot++;
     });
@@ -1514,7 +1607,9 @@ function renderDashboard() {
   const pendList = [];
   if (session.role === "fornecedor") {
     const fid = session.fornecedorId;
+    const ocultos = new Set(getItensOcultosFornecedor(fid));
     ativos.forEach((p) => {
+      if (ocultos.has(p.id)) return;
       const c = state.cotacoes[fid]?.[p.id];
       if (c && Number(c.qtde) > 0 && (String(c.status).toUpperCase() !== "OK" || !Number(c.preco))) {
         pendList.push({ nome: p.nome, extra: `qtde ${formatNum(c.qtde)}` });
@@ -2887,10 +2982,14 @@ function renderCotacao() {
   const tbody = document.querySelector("#table-cotacao tbody");
   const canEdit =
     session.role === "admin" || (session.role === "fornecedor" && session.fornecedorId === fid);
+  // Só na visão do próprio fornecedor: itens que ele ocultou não entram na tabela
+  const ocultos =
+    session.role === "fornecedor" ? new Set(getItensOcultosFornecedor(session.fornecedorId)) : null;
 
   // sync qtde from necessidade (mín − atual) for admin convenience
   let totalOk = 0;
   const rows = produtosAtivos()
+    .filter((p) => !ocultos || !ocultos.has(p.id))
     .filter((p) => !cat || p.categoria === cat)
     .filter((p) => !busca || p.nome.toLowerCase().includes(busca))
     .map((p) => {
@@ -4634,6 +4733,29 @@ function initEvents() {
     if (el1) el1.value = "";
     if (el2) el2.value = "";
     alert("Senha atualizada.");
+  });
+  document.getElementById("btn-gerenciar-itens-cotacao")?.addEventListener("click", () => {
+    if (session?.role !== "fornecedor") return;
+    switchView("configuracoes");
+    requestAnimationFrame(() => {
+      document.getElementById("config-itens-cotacao-wrap")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+  document.getElementById("filter-itens-cotacao-busca")?.addEventListener("input", () => {
+    if (session?.role === "fornecedor") renderItensCotacaoFornecedor();
+  });
+  document.getElementById("btn-itens-marcar-todos")?.addEventListener("click", () => {
+    if (session?.role !== "fornecedor") return;
+    setTodosItensOcultosFornecedor(session.fornecedorId, false);
+    scheduleSave();
+    renderItensCotacaoFornecedor();
+  });
+  document.getElementById("btn-itens-desmarcar-todos")?.addEventListener("click", () => {
+    if (session?.role !== "fornecedor") return;
+    if (!confirm("Desmarcar todos? Esses produtos deixam de aparecer na sua Cotação.")) return;
+    setTodosItensOcultosFornecedor(session.fornecedorId, true);
+    scheduleSave();
+    renderItensCotacaoFornecedor();
   });
   document.getElementById("menu-toggle").addEventListener("click", () => {
     document.getElementById("sidebar").classList.toggle("open");

@@ -425,6 +425,9 @@
                 <input id="filter-cot-busca" placeholder="Buscar produto…" type="search" />
               </div>
               <p class="toolbar-hint" id="cotacao-hint">Preencha preço e status da sua cotação.</p>
+              <button class="btn btn-ghost btn-sm hidden" id="btn-gerenciar-itens-cotacao" type="button">
+                Gerenciar itens ocultos
+              </button>
             </div>
             <div class="table-wrap">
               <table class="data-table" id="table-cotacao">
@@ -737,6 +740,25 @@
                   <p class="field-hint" style="margin-top:1rem">
                     Se a nuvem estiver ativa, a nova senha sincroniza com os outros aparelhos.
                   </p>
+                </div>
+              </article>
+
+              <article class="panel hidden" id="config-itens-cotacao-wrap" style="max-width:640px;margin-top:1.25rem">
+                <div class="panel-header">
+                  <h3>Itens da cotação</h3>
+                </div>
+                <div class="panel-body">
+                  <p class="field-hint" style="margin-bottom:0.75rem">
+                    Marque os produtos que você cotar. Desmarque os que <strong>nunca</strong> devem aparecer na sua Cotação.
+                    O catálogo geral não é alterado — só some da sua lista.
+                  </p>
+                  <p class="field-hint" id="config-itens-cotacao-meta" style="margin-bottom:0.75rem"></p>
+                  <div class="filters" style="margin-bottom:0.75rem">
+                    <input id="filter-itens-cotacao-busca" placeholder="Buscar produto…" type="search" />
+                    <button class="btn btn-ghost btn-sm" id="btn-itens-marcar-todos" type="button">Marcar todos</button>
+                    <button class="btn btn-ghost btn-sm" id="btn-itens-desmarcar-todos" type="button">Desmarcar todos</button>
+                  </div>
+                  <div class="itens-cotacao-list" id="config-itens-cotacao-list" role="group" aria-label="Itens para cotar"></div>
                 </div>
               </article>
             </div>

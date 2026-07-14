@@ -538,6 +538,70 @@ button, input, select, textarea { font: inherit; }
 }
 .check-inline input { accent-color: var(--accent); }
 
+/* Checklist: itens da cotação (fornecedor) */
+.itens-cotacao-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: min(55vh, 420px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.15rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.itens-cotacao-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  margin: 0;
+  cursor: pointer;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--bg-card);
+  border: 1px solid transparent;
+  min-height: 48px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.itens-cotacao-item:hover {
+  border-color: var(--border);
+  background: #fff;
+}
+.itens-cotacao-item:has(input:not(:checked)) {
+  opacity: 0.72;
+}
+.itens-cotacao-item input {
+  width: 1.2rem;
+  height: 1.2rem;
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+.itens-cotacao-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.itens-cotacao-item-body strong {
+  font-size: 0.95rem;
+  line-height: 1.25;
+}
+.itens-cotacao-item-body span {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 720px) {
+  .itens-cotacao-list {
+    max-height: min(60vh, 480px);
+  }
+  .itens-cotacao-item {
+    padding: 0.85rem 0.75rem;
+  }
+}
+
 /* Tables — horizontal bar always visible on wide tables */
 .table-wrap,
 .scroll-x {
