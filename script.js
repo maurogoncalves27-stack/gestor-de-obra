@@ -53,6 +53,8 @@ const EMERGENCIA_STATUS = {
 let envioSigPads = null;
 let envioChecklist = {};
 let envioSigRestoredKey = "";
+/** Categorias abertas na sanfona da Cotação (persiste entre re-renders). */
+const cotacaoAccOpen = new Set();
 
 let state = null;
 let session = null;
@@ -4260,7 +4262,8 @@ function renderCotacao() {
   const fid = fornScope();
   const cat = document.getElementById("filter-cot-categoria").value;
   const busca = document.getElementById("filter-cot-busca").value.toLowerCase();
-  const tbody = document.querySelector("#table-cotacao tbody");
+  const host = document.getElementById("cotacao-acordeoes");
+  if (!host) return;
   const agenda = labelStatusCotacaoAgenda();
   const fornecedorBloqueado = session.role === "fornecedor" && !agenda.liberada;
   const canEdit =
@@ -4303,6 +4306,14 @@ function renderCotacao() {
       : `Você está cotando como ${session.nome}. Só esta cotação é editável.`;
   }
 
+  // sync open state before rebuild
+  host.querySelectorAll(".cotacao-acc").forEach((el) => {
+    const key = el.dataset.cat;
+    if (!key) return;
+    if (el.open) cotacaoAccOpen.add(key);
+    else cotacaoAccOpen.delete(key);
+  });
+
   // sync qtde from necessidade (mín − atual) for admin convenience
   let totalOk = 0;
   const rows = produtosAtivos()
@@ -4325,34 +4336,80 @@ function renderCotacao() {
       ? rows.filter((r) => Number(r.c.qtde) > 0)
       : rows;
 
-  tbody.innerHTML = filtered.length
-    ? filtered
-        .map(({ p, c }) => {
-          const total = Number(c.qtde) * Number(c.preco);
-          if (String(c.status).toUpperCase() === "OK") totalOk += total;
-          const dis = canEdit ? "" : "disabled";
-          return `<tr data-pid="${p.id}">
-            <td><strong>${esc(p.nome)}</strong></td>
-            <td>${esc(p.categoria)}</td>
-            <td>${esc(p.unidade)}</td>
-            <td><input class="cell-input" data-field="qtde" ${dis} step="any" type="number" value="${c.qtde}" /></td>
-            <td><input class="cell-input" data-field="preco" ${dis} step="any" type="number" value="${c.preco}" /></td>
-            <td>${formatMoney(total)}</td>
-            <td><input class="cell-input wide" data-field="observacoes" ${dis} type="text" value="${escAttr(c.observacoes)}" /></td>
-            <td>
-              <select class="cell-input" data-field="status" ${dis}>
-                <option value="FALTA" ${c.status === "FALTA" ? "selected" : ""}>FALTA</option>
-                <option value="OK" ${c.status === "OK" ? "selected" : ""}>OK</option>
-              </select>
-            </td>
-          </tr>`;
-        })
-        .join("")
-    : '<tr><td colspan="8" class="empty-state">Nenhum item nesta cotação</td></tr>';
+  const byCat = new Map();
+  filtered.forEach((row) => {
+    const key = row.p.categoria || "Sem categoria";
+    if (!byCat.has(key)) byCat.set(key, []);
+    byCat.get(key).push(row);
+  });
+  const catOrder = categorias();
+  const sortedCats = [...byCat.keys()].sort((a, b) => {
+    const ia = catOrder.indexOf(a);
+    const ib = catOrder.indexOf(b);
+    const sa = ia === -1 ? 9999 : ia;
+    const sb = ib === -1 ? 9999 : ib;
+    if (sa !== sb) return sa - sb;
+    return a.localeCompare(b, "pt-BR");
+  });
+
+  const rowHtml = ({ p, c }) => {
+    if (String(c.status).toUpperCase() === "OK") totalOk += Number(c.qtde) * Number(c.preco);
+    const dis = canEdit ? "" : "disabled";
+    return `<tr data-pid="${p.id}">
+      <td><strong>${esc(p.nome)}</strong></td>
+      <td>${esc(p.unidade)}</td>
+      <td><input class="cell-input" data-field="qtde" ${dis} step="any" type="number" value="${c.qtde}" /></td>
+      <td><input class="cell-input" data-field="preco" ${dis} step="any" type="number" value="${c.preco}" /></td>
+      <td><input class="cell-input wide" data-field="observacoes" ${dis} type="text" value="${escAttr(c.observacoes)}" /></td>
+    </tr>`;
+  };
+
+  if (!sortedCats.length) {
+    host.innerHTML = '<p class="empty-state">Nenhum item nesta cotação</p>';
+  } else {
+    host.innerHTML = sortedCats
+      .map((catName) => {
+        const items = byCat.get(catName);
+        // Filtrado por uma categoria: abre; senão respeita Set (padrão fechado)
+        const open = cat && cat === catName ? true : cotacaoAccOpen.has(catName);
+        if (open) cotacaoAccOpen.add(catName);
+        return `<details class="cotacao-acc" data-cat="${escAttr(catName)}" ${open ? "open" : ""}>
+          <summary>
+            <span class="cotacao-acc-chevron" aria-hidden="true">▸</span>
+            <span class="cotacao-acc-title">${esc(catName)}</span>
+            <span class="cotacao-acc-count">${items.length}</span>
+          </summary>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Produto</th>
+                  <th>UN</th>
+                  <th>Qtde</th>
+                  <th>Preço unit.</th>
+                  <th>Observações</th>
+                </tr>
+              </thead>
+              <tbody>${items.map(rowHtml).join("")}</tbody>
+            </table>
+          </div>
+        </details>`;
+      })
+      .join("");
+  }
 
   document.getElementById("cotacao-total").textContent = formatMoney(totalOk);
 
-  tbody.querySelectorAll("tr[data-pid]").forEach((tr) => {
+  host.querySelectorAll(".cotacao-acc").forEach((el) => {
+    el.addEventListener("toggle", () => {
+      const key = el.dataset.cat;
+      if (!key) return;
+      if (el.open) cotacaoAccOpen.add(key);
+      else cotacaoAccOpen.delete(key);
+    });
+  });
+
+  host.querySelectorAll("tr[data-pid]").forEach((tr) => {
     const pid = tr.dataset.pid;
     tr.querySelectorAll("[data-field]").forEach((input) => {
       input.addEventListener("change", () => {

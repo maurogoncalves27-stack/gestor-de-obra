@@ -6,12 +6,12 @@
     <meta name="description" content="Estoque multi-loja e cotação de fornecedores — Aquela Parmê" />
     <meta name="theme-color" content="#c2410c" />
     <title>Estoque & Cotação — Aquela Parmê</title>
-    <link rel="stylesheet" href="style.css?v=20260714-sem-preco-xls" />
+    <link rel="stylesheet" href="style.css?v=20260714-cot-sanfona" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <script src="config.js?v=20260714-sem-preco-xls"></script>
-    <script src="seed-data.js?v=20260714-sem-preco-xls"></script>
-    <script src="script.js?v=20260714-sem-preco-xls" defer></script>
+    <script src="config.js?v=20260714-cot-sanfona"></script>
+    <script src="seed-data.js?v=20260714-cot-sanfona"></script>
+    <script src="script.js?v=20260714-cot-sanfona" defer></script>
   </head>
   <body>
     <!-- LOGIN -->
@@ -440,36 +440,17 @@
                 </select>
                 <input id="filter-cot-busca" placeholder="Buscar produto…" type="search" />
               </div>
-              <p class="toolbar-hint" id="cotacao-hint">Preencha preço e status da sua cotação.</p>
+              <p class="toolbar-hint" id="cotacao-hint">Preencha quantidade, preço e observações da sua cotação.</p>
               <span class="badge badge-ok cotacao-agenda-badge hidden" id="cotacao-agenda-badge"></span>
               <button class="btn btn-ghost btn-sm hidden" id="btn-gerenciar-itens-cotacao" type="button">
                 Gerenciar itens ocultos
               </button>
             </div>
             <div class="alert-banner alert-warn cotacao-agenda-banner hidden" id="cotacao-agenda-banner" role="status"></div>
-            <div class="table-wrap">
-              <table class="data-table" id="table-cotacao">
-                <thead>
-                  <tr>
-                    <th>Produto</th>
-                    <th>Cat.</th>
-                    <th>UN</th>
-                    <th>Qtde</th>
-                    <th>Preço unit.</th>
-                    <th>Total</th>
-                    <th>Observações</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-                <tfoot>
-                  <tr class="totals-row">
-                    <td colspan="5"><strong>Total cotado (OK)</strong></td>
-                    <td id="cotacao-total"></td>
-                    <td colspan="2"></td>
-                  </tr>
-                </tfoot>
-              </table>
+            <div class="cotacao-acordeoes" id="cotacao-acordeoes"></div>
+            <div class="cotacao-total-bar totals-row">
+              <strong>Total cotado (OK)</strong>
+              <span id="cotacao-total"></span>
             </div>
           </section>
 
