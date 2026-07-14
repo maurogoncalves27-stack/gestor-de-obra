@@ -137,9 +137,14 @@
                 </div>
                 <div class="contagem-progress-bar"><div id="contagem-progress-fill"></div></div>
               </div>
-              <div class="view-toolbar contagem-toolbar">
-                <div class="filters">
+              <div class="view-toolbar contagem-toolbar" id="contagem-toolbar">
+                <div class="filters filters-primary">
                   <input id="filter-contagem-busca" inputmode="search" placeholder="Buscar produto…" type="search" />
+                  <button class="btn btn-ghost btn-sm" id="btn-contagem-mais-filtros" type="button" aria-expanded="false">
+                    Mais filtros
+                  </button>
+                </div>
+                <div class="filters filters-extra collapsed" id="contagem-filters-extra">
                   <select id="filter-contagem-categoria">
                     <option value="">Todas as categorias</option>
                   </select>
@@ -167,13 +172,19 @@
           <!-- ESTOQUE -->
           <section class="view" id="view-estoque">
             <div class="alert-stack" id="estoque-alerta-minimo"></div>
-            <div class="view-toolbar">
-              <div class="filters">
+            <div class="alert-stack hidden" id="estoque-lotes-mismatch"></div>
+            <div class="view-toolbar" id="estoque-toolbar">
+              <div class="filters filters-primary">
                 <select id="filter-loja"></select>
                 <select id="filter-categoria">
                   <option value="">Todas as categorias</option>
                 </select>
-                <input id="filter-estoque-busca" placeholder="Buscar produto…" type="search" />
+                <input id="filter-estoque-busca" placeholder="Buscar produto ou SKU…" type="search" />
+                <button class="btn btn-ghost btn-sm" id="btn-estoque-mais-filtros" type="button" aria-expanded="false">
+                  Mais filtros
+                </button>
+              </div>
+              <div class="filters filters-extra collapsed" id="estoque-filters-extra">
                 <label class="check-inline filters-check">
                   <input id="filter-so-baixo" type="checkbox" />
                   Só abaixo do mínimo
@@ -194,11 +205,12 @@
               Em Fórmula o valor não se edita direto — mude para Fixo (mantém o calculado) ou use <strong>Editar…</strong> para a expressão.
               Voltar de Fixo para Fórmula pede confirmação.
             </p>
+            <div class="estoque-cards hidden" id="estoque-cards"></div>
             <div class="table-wrap">
-              <table class="data-table" id="table-estoque">
+              <table class="data-table sticky-produto" id="table-estoque">
                 <thead>
                   <tr>
-                    <th>Produto</th>
+                    <th class="col-sticky-produto">Produto</th>
                     <th>Cat.</th>
                     <th>UN</th>
                     <th>Saldo</th>
@@ -244,6 +256,7 @@
             <p class="toolbar-hint no-print" id="envio-hint">
               Listagem de envio por loja — preencha as assinaturas na tela ou no papel impresso.
             </p>
+            <p class="badge badge-ok envio-aplicado-badge hidden no-print" id="envio-aplicado-badge"></p>
             <article class="envio-sheet" id="envio-print-sheet">
               <header class="envio-sheet-header">
                 <div>
@@ -254,11 +267,11 @@
                 <div class="envio-sheet-date" id="envio-sheet-date">—</div>
               </header>
               <div class="table-wrap">
-                <table class="data-table envio-table" id="table-envio-sexta">
+                <table class="data-table envio-table sticky-produto sticky-produto-envio" id="table-envio-sexta">
                   <thead>
                     <tr>
                       <th class="col-check">☑</th>
-                      <th>Produto</th>
+                      <th class="col-sticky-produto">Produto</th>
                       <th>Cat.</th>
                       <th>UN</th>
                       <th>Saldo</th>
@@ -385,10 +398,10 @@
               <div class="contagem-progress-bar"><div id="producao-progress-bar"></div></div>
             </div>
             <div class="table-wrap no-print">
-              <table class="data-table" id="table-producao">
+              <table class="data-table sticky-produto" id="table-producao">
                 <thead>
                   <tr>
-                    <th>Produto</th>
+                    <th class="col-sticky-produto">Produto</th>
                     <th>UN</th>
                     <th>Lista</th>
                     <th>Total a produzir</th>
@@ -829,6 +842,13 @@
           </section>
         </main>
       </div>
+
+      <nav class="mobile-bottom-nav hidden" id="mobile-bottom-nav" aria-label="Atalhos">
+        <button type="button" class="mobile-nav-btn" data-view="contagem"><span>🔢</span> Contagem</button>
+        <button type="button" class="mobile-nav-btn" data-view="estoque"><span>📦</span> Estoque</button>
+        <button type="button" class="mobile-nav-btn" data-mobile-mid data-view="emergencia"><span>🚨</span> Emergência</button>
+        <button type="button" class="mobile-nav-btn" data-mobile-menu><span>☰</span> Menu</button>
+      </nav>
     </div>
 
     <!-- Desktop sticky H-scroll synced with wide tables -->

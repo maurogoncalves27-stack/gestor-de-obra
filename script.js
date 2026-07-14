@@ -188,6 +188,145 @@ function somaQtdeLotes(entry) {
   return (entry?.lotes || []).reduce((s, l) => s + (Number(l.qtde) || 0), 0);
 }
 
+/** Log simples de movimentações de saldo (ajuste, contagem, envio, emergência, produção…). */
+function pushMovimento({ lojaId, produtoId, de, para, motivo, nota = "", tipo = "" } = {}) {
+  if (!state) return;
+  if (!Array.isArray(state.movimentos)) state.movimentos = [];
+  const deN = Number(de) || 0;
+  const paraN = Number(para) || 0;
+  if (deN === paraN && motivo !== "contagem") return;
+  state.movimentos.unshift({
+    id: uid(),
+    lojaId: lojaId || "",
+    produtoId: produtoId || "",
+    de: deN,
+    para: paraN,
+    motivo: motivo || "ajuste",
+    nota: String(nota || "").slice(0, 240),
+    tipo: tipo || motivo || "ajuste",
+    em: new Date().toISOString(),
+    por: session?.userId || "",
+  });
+  if (state.movimentos.length > 2000) state.movimentos.length = 2000;
+}
+
+function listLotesMismatch(lojaId) {
+  const list = [];
+  produtosDaLoja(lojaId, { incluirOcultos: true }).forEach((p) => {
+    const e = ensureEstoque(lojaId, p.id);
+    migrateValidadesToLotes(e);
+    const nLotes = (e.lotes || []).length;
+    if (!nLotes) return;
+    const soma = somaQtdeLotes(e);
+    const saldo = Number(e.saldo) || 0;
+    if (Math.abs(soma - saldo) > 1e-6) {
+      list.push({ produtoId: p.id, nome: p.nome, saldo, soma, delta: Math.round((soma - saldo) * 1000) / 1000 });
+    }
+  });
+  return list;
+}
+
+function igualarSaldoAosLotes(lojaId, produtoId, { silent = false } = {}) {
+  const entry = ensureEstoque(lojaId, produtoId);
+  migrateValidadesToLotes(entry);
+  const soma = somaQtdeLotes(entry);
+  const de = Number(entry.saldo) || 0;
+  if (Math.abs(soma - de) < 1e-6) {
+    if (!silent) alert("Saldo já confere com a soma dos lotes.");
+    return false;
+  }
+  entry.saldo = Math.round(soma * 1000) / 1000;
+  pushMovimento({
+    lojaId,
+    produtoId,
+    de,
+    para: entry.saldo,
+    motivo: "correcao",
+    nota: "Igualar saldo à soma dos lotes",
+    tipo: "ajuste",
+  });
+  return true;
+}
+
+function igualarSaldosMismatch(lojaId) {
+  const mismatches = listLotesMismatch(lojaId);
+  if (!mismatches.length) {
+    alert("Nenhum produto com soma de lotes diferente do saldo.");
+    return;
+  }
+  if (
+    !confirm(
+      `Igualar saldo à soma dos lotes em ${mismatches.length} produto(s)?\n` +
+        mismatches
+          .slice(0, 8)
+          .map((x) => `• ${x.nome}: ${formatNum(x.saldo)} → ${formatNum(x.soma)}`)
+          .join("\n") +
+        (mismatches.length > 8 ? `\n… +${mismatches.length - 8} mais` : "")
+    )
+  ) {
+    return;
+  }
+  mismatches.forEach((x) => igualarSaldoAosLotes(lojaId, x.produtoId, { silent: true }));
+  scheduleSave();
+  renderEstoque();
+}
+
+const MOTIVOS_SALDO = [
+  { id: "ajuste", label: "Ajuste" },
+  { id: "quebra", label: "Quebra" },
+  { id: "correcao", label: "Correção" },
+  { id: "outro", label: "Outro" },
+];
+
+function openSaldoMotivoModal({ lojaId, produtoId, de, para }, onConfirm) {
+  const p = getProduto(produtoId);
+  const modal = document.getElementById("modal");
+  const saveBtn = document.getElementById("modal-save");
+  const cancelBtn = document.getElementById("modal-cancel");
+  document.getElementById("modal-title").textContent = "Motivo da alteração de saldo";
+  document.getElementById("modal-body").innerHTML = `
+    <p class="toolbar-hint">
+      <strong>${esc(p?.nome || produtoId)}</strong> · ${esc(lojaNome(lojaId))}<br />
+      ${formatNum(de)} → <strong>${formatNum(para)}</strong> ${esc(p?.unidade || "")}
+    </p>
+    <label class="field"><span>Motivo</span>
+      <select id="saldo-motivo" required>
+        ${MOTIVOS_SALDO.map((m) => `<option value="${m.id}">${m.label}</option>`).join("")}
+      </select>
+    </label>
+    <label class="field"><span>Nota (opcional)</span>
+      <input id="saldo-nota" type="text" maxlength="240" placeholder="Ex.: inventário parcial, dano…" />
+    </label>`;
+  if (saveBtn) {
+    saveBtn.classList.remove("hidden");
+    saveBtn.textContent = "Confirmar";
+  }
+  if (cancelBtn) cancelBtn.textContent = "Cancelar";
+  modal.showModal();
+  document.getElementById("modal-form").onsubmit = (ev) => {
+    ev.preventDefault();
+    const motivo = document.getElementById("saldo-motivo")?.value || "ajuste";
+    const nota = (document.getElementById("saldo-nota")?.value || "").trim();
+    modal.close();
+    onConfirm({ motivo, nota });
+  };
+  const onClose = () => {
+    if (saveBtn) saveBtn.textContent = "Salvar";
+    if (cancelBtn) cancelBtn.textContent = "Cancelar";
+    modal.removeEventListener("close", onClose);
+  };
+  modal.addEventListener("close", onClose);
+}
+
+function setSaldoComMotivo(lojaId, produtoId, novoSaldo, { motivo, nota = "", tipo = "" } = {}) {
+  const entry = ensureEstoque(lojaId, produtoId);
+  const de = Number(entry.saldo) || 0;
+  const para = Math.max(0, Number(novoSaldo) || 0);
+  entry.saldo = para;
+  pushMovimento({ lojaId, produtoId, de, para, motivo: motivo || "ajuste", nota, tipo: tipo || motivo });
+  return entry;
+}
+
 function emptyCotacaoEntry() {
   return { qtde: 0, preco: 0, observacoes: "", status: "FALTA" };
 }
@@ -359,6 +498,7 @@ function defaultState(seed) {
     solicitacoesEmergencia: [],
     historicoPrecos: [],
     enviosAplicados: {},
+    movimentos: [],
     fornecedorItensOcultos: {},
     cotacaoAgenda: defaultCotacaoAgenda(),
   };
@@ -374,6 +514,7 @@ function applyOperationalFromSeed(data, seed) {
   const historicoPrecos = Array.isArray(data.historicoPrecos) ? data.historicoPrecos : [];
   const enviosAplicados =
     data.enviosAplicados && typeof data.enviosAplicados === "object" ? data.enviosAplicados : {};
+  const movimentos = Array.isArray(data.movimentos) ? data.movimentos : [];
   const fornecedorItensOcultos =
     data.fornecedorItensOcultos && typeof data.fornecedorItensOcultos === "object"
       ? data.fornecedorItensOcultos
@@ -399,6 +540,7 @@ function applyOperationalFromSeed(data, seed) {
   data.solicitacoesEmergencia = solicitacoesEmergencia;
   data.historicoPrecos = historicoPrecos;
   data.enviosAplicados = enviosAplicados;
+  data.movimentos = movimentos;
   data.fornecedorItensOcultos = fornecedorItensOcultos;
   data.cotacaoAgenda = cotacaoAgenda;
   data.seedVersion = seed?.seedVersion || "";
@@ -438,6 +580,7 @@ function migrateState(data) {
   if (!Array.isArray(data.solicitacoesEmergencia)) data.solicitacoesEmergencia = [];
   if (!Array.isArray(data.historicoPrecos)) data.historicoPrecos = [];
   if (!data.enviosAplicados || typeof data.enviosAplicados !== "object") data.enviosAplicados = {};
+  if (!Array.isArray(data.movimentos)) data.movimentos = [];
   if (!data.producoesAplicadas || typeof data.producoesAplicadas !== "object") data.producoesAplicadas = {};
   if (!data.fornecedorItensOcultos || typeof data.fornecedorItensOcultos !== "object") {
     data.fornecedorItensOcultos = {};
@@ -460,6 +603,9 @@ function migrateState(data) {
   });
   Object.values(data.estoques).forEach((lojaMap) => {
     Object.values(lojaMap || {}).forEach((e) => migrateValidadesToLotes(e));
+  });
+  (data.produtos || []).forEach((p) => {
+    if (p && p.sku == null) p.sku = "";
   });
   data.fornecedores.forEach((f) => {
     if (!data.cotacoes[f.id]) data.cotacoes[f.id] = {};
@@ -1007,10 +1153,13 @@ function renderValidadeAlertList(items, limit = 12) {
   const rows = shown
     .map(
       (x) =>
-        `<button type="button" class="alert-list-item" data-goto-estoque="${esc(x.lojaId)}" data-produto-busca="${esc(x.nome)}">
-          <strong>${esc(x.nome)}</strong>
-          <span>${esc(x.loja)} · ${esc(x.codigo)} · qtde ${formatNum(x.qtde)} · ${formatDateBR(x.data)}</span>
-        </button>`
+        `<div class="alert-list-row">
+          <button type="button" class="alert-list-item" data-goto-estoque="${esc(x.lojaId)}" data-produto-id="${esc(x.produtoId)}" data-produto-busca="${esc(x.nome)}" data-open-lotes="1">
+            <strong>${esc(x.nome)}</strong>
+            <span>${esc(x.loja)} · ${esc(x.codigo)} · qtde ${formatNum(x.qtde)} · ${formatDateBR(x.data)}</span>
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm" data-goto-estoque="${esc(x.lojaId)}" data-produto-id="${esc(x.produtoId)}" data-produto-busca="${esc(x.nome)}" data-open-lotes="1">Gerenciar lotes</button>
+        </div>`
     )
     .join("");
   return `<div class="alert-list">${rows}${
@@ -1018,7 +1167,7 @@ function renderValidadeAlertList(items, limit = 12) {
   }</div>`;
 }
 
-function gotoEstoqueValidade(lojaId, busca) {
+function gotoEstoqueValidade(lojaId, busca, produtoId, { openLotes = false } = {}) {
   const sel = document.getElementById("filter-loja");
   if (sel && lojaId) {
     sel.value = lojaId;
@@ -1029,6 +1178,67 @@ function gotoEstoqueValidade(lojaId, busca) {
   const buscaEl = document.getElementById("filter-estoque-busca");
   if (buscaEl) buscaEl.value = busca || "";
   switchView("estoque");
+  const lid = lojaId || lojaScope();
+  const pid = produtoId || "";
+  if (pid) {
+    requestAnimationFrame(() => {
+      const highlight = () => {
+        const tr = document.querySelector(`#table-estoque tr[data-pid="${pid}"]`);
+        const card = document.querySelector(`.estoque-card[data-pid="${pid}"]`);
+        document.querySelectorAll(".row-highlight, .estoque-card-highlight").forEach((el) => {
+          el.classList.remove("row-highlight", "estoque-card-highlight");
+        });
+        if (tr) {
+          tr.classList.add("row-highlight");
+          tr.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        if (card) {
+          card.classList.add("estoque-card-highlight");
+          card.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      };
+      highlight();
+      if (openLotes && lid) openLotesModal(lid, pid);
+    });
+  }
+}
+
+function gotoEstoqueBaixo(lojaId) {
+  const sel = document.getElementById("filter-loja");
+  if (sel && lojaId) {
+    sel.value = lojaId;
+    sel.disabled = session.role === "loja";
+  }
+  const soBaixo = document.getElementById("filter-so-baixo");
+  if (soBaixo) soBaixo.checked = true;
+  const buscaEl = document.getElementById("filter-estoque-busca");
+  if (buscaEl) buscaEl.value = "";
+  switchView("estoque");
+}
+
+function handleDashGoto(action, el) {
+  if (!action) return;
+  if (action === "estoque-baixo") {
+    const lid =
+      session.role === "loja"
+        ? session.lojaId
+        : el?.dataset?.lojaId || document.getElementById("filter-loja")?.value || "";
+    gotoEstoqueBaixo(lid);
+  } else if (action === "estoque-central") {
+    gotoEstoqueBaixo("central");
+  } else if (action === "estoque-validade") {
+    gotoEstoqueValidade(session.role === "loja" ? session.lojaId : "", "");
+  } else if (action === "emergencia") {
+    switchView("emergencia");
+  } else if (action === "producao") {
+    switchView("producao");
+  } else if (action === "cotacao") {
+    switchView(session.role === "admin" ? "resultado" : "cotacao");
+  } else if (action === "envio") {
+    switchView("envio-sexta");
+  } else if (action === "estoque") {
+    switchView("estoque");
+  }
 }
 
 function isLojaOperacional(lojaId) {
@@ -1381,12 +1591,39 @@ function openLotesModal(lojaId, produtoId) {
         }
       </div>
       ${canEdit ? '<button class="btn btn-ghost" id="lote-add" type="button">+ Adicionar lote</button>' : ""}
+      ${
+        canEdit && mismatch
+          ? `<button class="btn" id="lote-igualar-saldo" type="button">Igualar saldo à soma dos lotes (${formatNum(soma)})</button>`
+          : ""
+      }
       <p class="field-hint">A soma das quantidades é só um aviso — o saldo do produto continua independente.</p>`;
 
     document.getElementById("lote-add")?.addEventListener("click", () => {
       readDraftFromDom();
       draft.push(emptyLote({ codigo: "", qtde: 0, validade: "" }));
       paint();
+    });
+    document.getElementById("lote-igualar-saldo")?.addEventListener("click", () => {
+      readDraftFromDom();
+      const somaNow = draft.reduce((s, l) => s + (Number(l.qtde) || 0), 0);
+      entry.lotes = draft
+        .map((l) => emptyLote(l))
+        .filter((l) => l.validade || l.codigo || Number(l.qtde));
+      migrateValidadesToLotes(entry);
+      const de = Number(entry.saldo) || 0;
+      entry.saldo = Math.round(somaNow * 1000) / 1000;
+      pushMovimento({
+        lojaId,
+        produtoId,
+        de,
+        para: entry.saldo,
+        motivo: "correcao",
+        nota: "Igualar saldo à soma dos lotes",
+        tipo: "ajuste",
+      });
+      scheduleSave();
+      paint();
+      if (document.getElementById("view-estoque")?.classList.contains("active")) renderEstoque();
     });
     document.querySelectorAll("[data-lote-del]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -1650,6 +1887,8 @@ function logout() {
   session = null;
   localStorage.removeItem(SESSION_KEY);
   hideTableHScrollFooter();
+  document.body.classList.remove("has-mobile-nav");
+  document.getElementById("mobile-bottom-nav")?.classList.add("hidden");
   document.getElementById("app").classList.add("hidden");
   document.getElementById("login-screen").classList.remove("hidden");
   document.getElementById("login-pass").value = "";
@@ -1683,6 +1922,8 @@ function enterApp() {
     session.role === "admin" ? "Administração" : session.role === "loja" ? "Loja" : "Fornecedor";
   document.getElementById("session-name").textContent = session.nome;
   buildNav();
+  bindMobileBottomNav();
+  updateMobileBottomNav();
   const first =
     session.role === "fornecedor"
       ? "cotacao"
@@ -1815,7 +2056,76 @@ function switchView(view) {
   document.getElementById("view-title").textContent = title;
   document.getElementById("view-subtitle").textContent = sub;
   document.getElementById("sidebar").classList.remove("open");
+  updateMobileBottomNav(view);
   render();
+}
+
+function shouldShowMobileBottomNav() {
+  if (!session || session.role !== "loja") return false;
+  return isLojaOperacional(session.lojaId) || session.lojaId === "fabrica" || session.lojaId === "central";
+}
+
+function updateMobileBottomNav(activeView) {
+  const nav = document.getElementById("mobile-bottom-nav");
+  if (!nav) return;
+  const show = shouldShowMobileBottomNav();
+  nav.classList.toggle("hidden", !show);
+  document.body.classList.toggle("has-mobile-nav", show);
+  const view = activeView || document.querySelector(".view.active")?.id?.replace("view-", "") || "";
+
+  const midBtn = nav.querySelector("[data-mobile-mid]");
+  if (midBtn) {
+    if (session?.lojaId === "fabrica" && can("producao")) {
+      midBtn.dataset.view = "producao";
+      midBtn.innerHTML = "<span>🏭</span> Produção";
+      midBtn.classList.toggle("hidden", false);
+    } else if (can("emergencia")) {
+      midBtn.dataset.view = "emergencia";
+      midBtn.innerHTML = "<span>🚨</span> Emergência";
+      midBtn.classList.toggle("hidden", false);
+    } else {
+      midBtn.classList.add("hidden");
+    }
+  }
+
+  nav.querySelectorAll(".mobile-nav-btn[data-view]").forEach((btn) => {
+    const vid = btn.dataset.view;
+    if (!btn.hasAttribute("data-mobile-mid")) {
+      btn.classList.toggle("hidden", !can(vid));
+    }
+    btn.classList.toggle("active", vid === view);
+  });
+}
+
+function bindMobileBottomNav() {
+  const nav = document.getElementById("mobile-bottom-nav");
+  if (!nav || nav.dataset.bound === "1") return;
+  nav.dataset.bound = "1";
+  nav.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".mobile-nav-btn");
+    if (!btn) return;
+    if (btn.hasAttribute("data-mobile-menu")) {
+      document.getElementById("sidebar")?.classList.toggle("open");
+      return;
+    }
+    if (btn.dataset.view) switchView(btn.dataset.view);
+  });
+}
+
+function bindFiltersCollapse() {
+  const bind = (btnId, extraId) => {
+    const btn = document.getElementById(btnId);
+    const extra = document.getElementById(extraId);
+    if (!btn || !extra || btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => {
+      const isOpen = extra.classList.toggle("collapsed") === false;
+      btn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      btn.textContent = isOpen ? "Menos filtros" : "Mais filtros";
+    });
+  };
+  bind("btn-estoque-mais-filtros", "estoque-filters-extra");
+  bind("btn-contagem-mais-filtros", "contagem-filters-extra");
 }
 
 let configTab = "usuarios";
@@ -2077,55 +2387,53 @@ function renderDashboard() {
     banner.innerHTML = parts.join("");
     banner.classList.toggle("hidden", !parts.length);
     banner.querySelectorAll("[data-goto]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (btn.dataset.goto === "estoque-central") {
-          const sel = document.getElementById("filter-loja");
-          if (sel) {
-            sel.value = "central";
-            sel.disabled = session.role === "loja";
-          }
-          const soBaixo = document.getElementById("filter-so-baixo");
-          if (soBaixo) soBaixo.checked = true;
-          switchView("estoque");
-        } else if (btn.dataset.goto === "estoque-validade") {
-          gotoEstoqueValidade(session.role === "loja" ? session.lojaId : "", "");
-        } else if (btn.dataset.goto === "emergencia") {
-          switchView("emergencia");
-        }
-      });
+      btn.addEventListener("click", () => handleDashGoto(btn.dataset.goto, btn));
     });
     banner.querySelectorAll("[data-goto-estoque]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        gotoEstoqueValidade(btn.dataset.gotoEstoque, btn.dataset.produtoBusca || "");
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        gotoEstoqueValidade(btn.dataset.gotoEstoque, btn.dataset.produtoBusca || "", btn.dataset.produtoId || "", {
+          openLotes: btn.dataset.openLotes === "1",
+        });
       });
     });
   }
 
   const kpis = [];
   if (session.role !== "fornecedor") {
-    kpis.push(`<article class="kpi-card"><p class="kpi-label">Abaixo do mínimo</p><p class="kpi-value kpi-danger">${baixo}</p></article>`);
+    kpis.push(
+      `<button type="button" class="kpi-card kpi-clickable" data-goto="estoque-baixo"><p class="kpi-label">Abaixo do mínimo</p><p class="kpi-value kpi-danger">${baixo}</p></button>`
+    );
     if (lotesVencidos.length) {
       kpis.push(
-        `<article class="kpi-card kpi-card-alert"><p class="kpi-label">Lotes vencidos</p><p class="kpi-value kpi-danger">${lotesVencidos.length}</p></article>`
+        `<button type="button" class="kpi-card kpi-card-alert kpi-clickable" data-goto="estoque-validade"><p class="kpi-label">Lotes vencidos</p><p class="kpi-value kpi-danger">${lotesVencidos.length}</p></button>`
       );
     }
     if (lotesProximos.length) {
       kpis.push(
-        `<article class="kpi-card"><p class="kpi-label">Próx. vencimento (${diasVal}d)</p><p class="kpi-value kpi-warn">${lotesProximos.length}</p></article>`
+        `<button type="button" class="kpi-card kpi-clickable" data-goto="estoque-validade"><p class="kpi-label">Próx. vencimento (${diasVal}d)</p><p class="kpi-value kpi-warn">${lotesProximos.length}</p></button>`
       );
     }
     if (session.role === "admin" || session.lojaId === "central") {
       kpis.push(
-        `<article class="kpi-card kpi-card-alert"><p class="kpi-label">Central abaixo do mín.</p><p class="kpi-value kpi-danger">${baixoCentral}</p></article>`
+        `<button type="button" class="kpi-card kpi-card-alert kpi-clickable" data-goto="estoque-central"><p class="kpi-label">Central abaixo do mín.</p><p class="kpi-value kpi-danger">${baixoCentral}</p></button>`
       );
       kpis.push(
-        `<article class="kpi-card${emergPendentes ? " kpi-card-alert" : ""}"><p class="kpi-label">Emergências pendentes</p><p class="kpi-value ${emergPendentes ? "kpi-warn" : ""}">${emergPendentes}</p></article>`
+        `<button type="button" class="kpi-card${emergPendentes ? " kpi-card-alert" : ""} kpi-clickable" data-goto="emergencia"><p class="kpi-label">Emergências pendentes</p><p class="kpi-value ${emergPendentes ? "kpi-warn" : ""}">${emergPendentes}</p></button>`
       );
     }
-    kpis.push(`<article class="kpi-card"><p class="kpi-label">Itens a produzir</p><p class="kpi-value kpi-warn">${produzir}</p></article>`);
+    if (can("producao")) {
+      kpis.push(
+        `<button type="button" class="kpi-card kpi-clickable" data-goto="producao"><p class="kpi-label">Itens a produzir</p><p class="kpi-value kpi-warn">${produzir}</p></button>`
+      );
+    } else {
+      kpis.push(`<article class="kpi-card"><p class="kpi-label">Itens a produzir</p><p class="kpi-value kpi-warn">${produzir}</p></article>`);
+    }
   }
   if (session.role !== "loja") {
-    kpis.push(`<article class="kpi-card"><p class="kpi-label">Cotações pendentes</p><p class="kpi-value kpi-warn">${pendCot}</p></article>`);
+    kpis.push(
+      `<button type="button" class="kpi-card kpi-clickable" data-goto="cotacao"><p class="kpi-label">Cotações pendentes</p><p class="kpi-value kpi-warn">${pendCot}</p></button>`
+    );
   }
   if (session.role === "admin") {
     const vg = valorEstoqueGeral();
@@ -2139,14 +2447,14 @@ function renderDashboard() {
     const vv = valorEstoqueLoja(session.lojaId);
     kpis.push(`<article class="kpi-card"><p class="kpi-label">Sua loja</p><p class="kpi-value" style="font-size:1rem">${esc(session.nome)}</p></article>`);
     kpis.push(
-      `<article class="kpi-card"><p class="kpi-label">Valor do seu estoque</p><p class="kpi-value">${formatMoney(vv.valor)}</p></article>`
+      `<button type="button" class="kpi-card kpi-clickable" data-goto="estoque"><p class="kpi-label">Valor do seu estoque</p><p class="kpi-value">${formatMoney(vv.valor)}</p></button>`
     );
     if (isLojaOperacional(session.lojaId)) {
       const minhasPend = getSolicitacoesEmergencia().filter(
         (s) => s.lojaId === session.lojaId && (s.status === "pendente" || s.status === "enviada")
       ).length;
       kpis.push(
-        `<article class="kpi-card"><p class="kpi-label">Seus pedidos urgentes</p><p class="kpi-value ${minhasPend ? "kpi-warn" : ""}">${minhasPend}</p></article>`
+        `<button type="button" class="kpi-card kpi-clickable" data-goto="emergencia"><p class="kpi-label">Seus pedidos urgentes</p><p class="kpi-value ${minhasPend ? "kpi-warn" : ""}">${minhasPend}</p></button>`
       );
     }
   }
@@ -2154,6 +2462,9 @@ function renderDashboard() {
     kpis.push(`<article class="kpi-card"><p class="kpi-label">Seu perfil</p><p class="kpi-value" style="font-size:1rem">${esc(session.nome)}</p></article>`);
   }
   document.getElementById("dash-kpis").innerHTML = kpis.join("");
+  document.querySelectorAll("#dash-kpis [data-goto]").forEach((btn) => {
+    btn.addEventListener("click", () => handleDashGoto(btn.dataset.goto, btn));
+  });
 
   const panelBaixo = document.getElementById("dash-baixo-minimo");
   if (panelBaixo) {
@@ -2170,10 +2481,20 @@ function renderDashboard() {
         .slice(0, 12)
         .map(
           (x) =>
-            `<div class="list-item${x.central ? " list-item-alert" : ""}"><strong>${esc(x.nome)}</strong><span>${esc(x.loja)} · ${formatNum(x.saldo)} / mín ${formatNum(x.min)}</span></div>`
+            `<button type="button" class="list-item list-item-btn${x.central ? " list-item-alert" : ""}" data-goto="estoque-baixo" data-loja-id="${esc(x.lojaId)}" data-produto-busca="${esc(x.nome)}"><strong>${esc(x.nome)}</strong><span>${esc(x.loja)} · ${formatNum(x.saldo)} / mín ${formatNum(x.min)}</span></button>`
         )
         .join("")
     : '<p class="empty-state">Nenhum item abaixo do mínimo</p>';
+  document.querySelectorAll("#dash-baixo-minimo [data-goto]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const lid = btn.dataset.lojaId || "";
+      const busca = btn.dataset.produtoBusca || "";
+      gotoEstoqueBaixo(lid);
+      const buscaEl = document.getElementById("filter-estoque-busca");
+      if (buscaEl && busca) buscaEl.value = busca;
+      if (can("estoque")) renderEstoque();
+    });
+  });
 
   const pendList = [];
   if (session.role === "fornecedor") {
@@ -2199,9 +2520,17 @@ function renderDashboard() {
   document.getElementById("dash-cotacoes").innerHTML = pendList.length
     ? pendList
         .slice(0, 12)
-        .map((x) => `<div class="list-item"><strong>${esc(x.nome)}</strong><span>${esc(x.extra)}</span></div>`)
+        .map((x) => {
+          const clickable = session.role !== "loja";
+          return clickable
+            ? `<button type="button" class="list-item list-item-btn" data-goto="cotacao"><strong>${esc(x.nome)}</strong><span>${esc(x.extra)}</span></button>`
+            : `<div class="list-item"><strong>${esc(x.nome)}</strong><span>${esc(x.extra)}</span></div>`;
+        })
         .join("")
     : '<p class="empty-state">Sem pendências de cotação</p>';
+  document.querySelectorAll("#dash-cotacoes [data-goto]").forEach((btn) => {
+    btn.addEventListener("click", () => handleDashGoto(btn.dataset.goto, btn));
+  });
 
   const prodList = ativos
     .filter((p) => state.producao[p.id]?.lista === "PRODUZIR")
@@ -2212,6 +2541,7 @@ function renderDashboard() {
     })
     .sort((a, b) => b.falta - a.falta);
 
+  const prodClickable = can("producao");
   document.getElementById("dash-producao").innerHTML =
     session.role === "fornecedor"
       ? '<p class="empty-state">Produção visível para admin e fábrica</p>'
@@ -2220,10 +2550,15 @@ function renderDashboard() {
             .slice(0, 15)
             .map(
               (x) =>
-                `<div class="list-item"><strong>${esc(x.nome)}</strong><span>falta ${formatNum(x.falta)} / ${formatNum(x.total)}</span></div>`
+                prodClickable
+                  ? `<button type="button" class="list-item list-item-btn" data-goto="producao"><strong>${esc(x.nome)}</strong><span>falta ${formatNum(x.falta)} / ${formatNum(x.total)}</span></button>`
+                  : `<div class="list-item"><strong>${esc(x.nome)}</strong><span>falta ${formatNum(x.falta)} / ${formatNum(x.total)}</span></div>`
             )
             .join("")
         : '<p class="empty-state">Nada na lista PRODUZIR</p>';
+  document.querySelectorAll("#dash-producao [data-goto]").forEach((btn) => {
+    btn.addEventListener("click", () => handleDashGoto(btn.dataset.goto, btn));
+  });
 }
 
 function renderMinimoBanner(containerId, lojaId) {
@@ -2263,8 +2598,19 @@ function contagemLojaId() {
 
 function setContagemSaldo(lojaId, produtoId, valor, marcarContado = true) {
   const entry = ensureEstoque(lojaId, produtoId);
-  entry.saldo = Math.max(0, Number(valor) || 0);
+  const de = Number(entry.saldo) || 0;
+  const para = Math.max(0, Number(valor) || 0);
+  entry.saldo = para;
   if (marcarContado) entry.contadoEm = new Date().toISOString();
+  pushMovimento({
+    lojaId,
+    produtoId,
+    de,
+    para,
+    motivo: "contagem",
+    nota: marcarContado ? "Contagem" : "Contagem (ajuste)",
+    tipo: "contagem",
+  });
   scheduleSave();
 }
 
@@ -2972,15 +3318,41 @@ function renderEstoque() {
   if (lojaScope() === "fabrica" || session.role === "admin") syncProducaoEMinimosFabrica();
   const lojaId = lojaScope();
   renderMinimoBanner("estoque-alerta-minimo", lojaId);
+
+  const mismatches = listLotesMismatch(lojaId);
+  const mismEl = document.getElementById("estoque-lotes-mismatch");
+  if (mismEl) {
+    if (mismatches.length) {
+      mismEl.classList.remove("hidden");
+      mismEl.innerHTML = `<div class="alert-banner alert-warn" role="status">
+        <strong>Lotes ≠ saldo</strong>
+        <span>${mismatches.length} produto(s) com soma dos lotes diferente do saldo.</span>
+        ${
+          session.role === "admin" || (session.role === "loja" && session.lojaId === lojaId)
+            ? `<button class="btn btn-sm" type="button" id="btn-igualar-saldos-lotes">Igualar saldo à soma dos lotes</button>`
+            : ""
+        }
+      </div>`;
+      document.getElementById("btn-igualar-saldos-lotes")?.addEventListener("click", () => igualarSaldosMismatch(lojaId));
+    } else {
+      mismEl.innerHTML = "";
+      mismEl.classList.add("hidden");
+    }
+  }
+
   const cat = document.getElementById("filter-categoria").value;
   const busca = document.getElementById("filter-estoque-busca").value.toLowerCase();
   const soBaixo = document.getElementById("filter-so-baixo").checked;
   const incluirInativos = document.getElementById("filter-estoque-inativos")?.checked;
   const incluirOcultos = document.getElementById("filter-estoque-ocultos")?.checked === true;
   const tbody = document.querySelector("#table-estoque tbody");
+  const cardsEl = document.getElementById("estoque-cards");
+  const tableWrap = document.querySelector("#view-estoque .table-wrap");
   const canEdit = session.role === "admin" || (session.role === "loja" && session.lojaId === lojaId);
   const canMinimoFab = lojaId === "fabrica" && canEditMinimoFabrica();
   const crudCentral = canManageProdutos() && lojaId === "central";
+  const useCards =
+    session.role === "loja" && typeof window.matchMedia === "function" && window.matchMedia("(max-width: 900px)").matches;
 
   const btnAdd = document.getElementById("btn-estoque-add-produto");
   const wrapInativos = document.getElementById("wrap-estoque-inativos");
@@ -2999,7 +3371,15 @@ function renderEstoque() {
   const rows = lista
     .filter((p) => incluirInativos || p.ativo !== false)
     .filter((p) => !cat || p.categoria === cat)
-    .filter((p) => !busca || p.nome.toLowerCase().includes(busca) || p.categoria.toLowerCase().includes(busca))
+    .filter((p) => {
+      if (!busca) return true;
+      const sku = String(p.sku || "").toLowerCase();
+      return (
+        p.nome.toLowerCase().includes(busca) ||
+        p.categoria.toLowerCase().includes(busca) ||
+        sku.includes(busca)
+      );
+    })
     .map((p) => {
       const e = ensureEstoque(lojaId, p.id);
       const st = estoqueStatus(e);
@@ -3013,9 +3393,51 @@ function renderEstoque() {
   if (colAcoes) colAcoes.classList.toggle("hidden", !showAcoesVis);
   const colSpan = (showAcoesVis ? 11 : 10) + (showFabMin ? 1 : 0);
 
-  const thead = document.querySelector("#table-estoque thead tr");
-  if (thead && !thead.querySelector(".col-min-modo")) {
-    // column added dynamically via row content; header fixed in HTML — update below via class
+  if (tableWrap) tableWrap.classList.toggle("hidden", useCards);
+  if (cardsEl) {
+    cardsEl.classList.toggle("hidden", !useCards);
+    if (useCards) {
+      cardsEl.innerHTML = rows.length
+        ? rows
+            .map(({ p, e, st }) => {
+              const statusLabel = st === "baixo" ? "Abaixo" : st === "atencao" ? "Atenção" : "OK";
+              return `<button type="button" class="estoque-card row-${st}" data-pid="${p.id}">
+                <div class="estoque-card-top">
+                  <strong>${esc(p.nome)}</strong>
+                  <span class="badge badge-${st === "baixo" ? "baixo" : "ok"}">${statusLabel}</span>
+                </div>
+                <div class="estoque-card-meta">
+                  <span>Saldo <strong>${formatNum(e.saldo)}</strong> ${esc(p.unidade || "")}</span>
+                  <span>Mín ${formatNum(e.minimo)}</span>
+                </div>
+              </button>`;
+            })
+            .join("")
+        : '<p class="empty-state">Nenhum produto encontrado</p>';
+      cardsEl.querySelectorAll(".estoque-card[data-pid]").forEach((card) => {
+        card.addEventListener("click", () => openEstoqueCardEditor(lojaId, card.dataset.pid));
+      });
+    }
+  }
+
+  // Adjust header for fábrica modo column
+  const thMin = [...document.querySelectorAll("#table-estoque thead th")].find((th) => th.textContent.trim() === "Mínimo");
+  let thModo = document.querySelector("#table-estoque thead .col-min-modo");
+  if (showFabMin) {
+    if (!thModo && thMin) {
+      thModo = document.createElement("th");
+      thModo.className = "col-min-modo";
+      thModo.textContent = "Modo mín.";
+      thMin.after(thModo);
+    }
+  } else if (thModo) {
+    thModo.remove();
+  }
+
+  if (!tbody) return;
+  if (useCards) {
+    tbody.innerHTML = "";
+    return;
   }
 
   tbody.innerHTML = rows.length
@@ -3033,6 +3455,7 @@ function renderEstoque() {
           const saldoNum = Number(e.saldo) || 0;
           const lotesMismatch = nLotes > 0 && Math.abs(somaLotes - saldoNum) > 1e-6;
           const lotesLabel = nLotes ? `${nLotes} lote${nLotes > 1 ? "s" : ""}` : "Gerenciar";
+          const skuBit = p.sku ? `<span class="muted-sm"> · ${esc(p.sku)}</span>` : "";
           const modoCell = showFabMin
             ? `<td class="td-min-modo">
                 <div class="min-modo-controls">
@@ -3069,7 +3492,7 @@ function renderEstoque() {
               </td>`
             : "";
           return `<tr class="row-${st}${p.ativo === false ? " row-inativo" : ""}${oculto ? " row-oculto" : ""}" data-pid="${p.id}">
-          <td><strong>${esc(p.nome)}</strong>${p.ativo === false ? ' <span class="badge badge-inativo">Inativo</span>' : ""}${oculto ? ' <span class="badge badge-inativo">oculto</span>' : ""}</td>
+          <td class="col-sticky-produto"><strong>${esc(p.nome)}</strong>${skuBit}${p.ativo === false ? ' <span class="badge badge-inativo">Inativo</span>' : ""}${oculto ? ' <span class="badge badge-inativo">oculto</span>' : ""}</td>
           <td>${esc(p.categoria)}</td>
           <td>${esc(p.unidade)}</td>
           <td><input class="cell-input" data-field="saldo" ${dis} step="any" type="number" value="${e.saldo}" /></td>
@@ -3091,29 +3514,18 @@ function renderEstoque() {
         .join("")
     : `<tr><td colspan="${colSpan}" class="empty-state">Nenhum produto encontrado</td></tr>`;
 
-  // Adjust header for fábrica modo column
-  const thMin = [...document.querySelectorAll("#table-estoque thead th")].find((th) => th.textContent.trim() === "Mínimo");
-  let thModo = document.querySelector("#table-estoque thead .col-min-modo");
-  if (showFabMin) {
-    if (!thModo && thMin) {
-      thModo = document.createElement("th");
-      thModo.className = "col-min-modo";
-      thModo.textContent = "Modo mín.";
-      thMin.after(thModo);
-    }
-  } else if (thModo) {
-    thModo.remove();
-  }
-
   tbody.querySelectorAll("tr[data-pid]").forEach((tr) => {
     const pid = tr.dataset.pid;
     tr.querySelectorAll("[data-field]").forEach((input) => {
-      const ev = input.type === "checkbox" ? "change" : "change";
-      input.addEventListener(ev, () => {
+      input.addEventListener("change", () => {
         const entry = ensureEstoque(lojaId, pid);
         const field = input.dataset.field;
-        if (input.type === "checkbox") entry[field] = input.checked;
-        else if (field === "minimo") {
+        if (input.type === "checkbox") {
+          entry[field] = input.checked;
+          scheduleSave();
+          return;
+        }
+        if (field === "minimo") {
           const emFormula =
             lojaId === "fabrica" && hasReceitaFabrica(pid) && minimoModoFabrica(entry, pid) === "formula";
           if (emFormula) {
@@ -3127,7 +3539,22 @@ function renderEstoque() {
             renderEstoque();
             return;
           }
-        } else if (input.type === "number") entry[field] = Number(input.value) || 0;
+          scheduleSave();
+          return;
+        }
+        if (field === "saldo") {
+          const de = Number(entry.saldo) || 0;
+          const para = Math.max(0, Number(input.value) || 0);
+          if (de === para) return;
+          input.value = de;
+          openSaldoMotivoModal({ lojaId, produtoId: pid, de, para }, ({ motivo, nota }) => {
+            setSaldoComMotivo(lojaId, pid, para, { motivo, nota, tipo: "ajuste" });
+            scheduleSave();
+            renderEstoque();
+          });
+          return;
+        }
+        if (input.type === "number") entry[field] = Number(input.value) || 0;
         else entry[field] = input.value;
         scheduleSave();
         const st = estoqueStatus(entry);
@@ -3183,6 +3610,60 @@ function renderEstoque() {
       renderEstoque();
     });
   });
+}
+
+function openEstoqueCardEditor(lojaId, produtoId) {
+  const p = getProduto(produtoId);
+  const entry = ensureEstoque(lojaId, produtoId);
+  if (!p) return;
+  const canEdit = session.role === "admin" || (session.role === "loja" && session.lojaId === lojaId);
+  const modal = document.getElementById("modal");
+  const saveBtn = document.getElementById("modal-save");
+  const cancelBtn = document.getElementById("modal-cancel");
+  const st = estoqueStatus(entry);
+  document.getElementById("modal-title").textContent = p.nome;
+  document.getElementById("modal-body").innerHTML = `
+    <p class="toolbar-hint">${esc(p.categoria)} · ${esc(p.unidade)} ·
+      <span class="badge badge-${st === "baixo" ? "baixo" : "ok"}">${st === "baixo" ? "Abaixo" : st === "atencao" ? "Atenção" : "OK"}</span>
+    </p>
+    <label class="field"><span>Saldo</span>
+      <input id="card-saldo" ${canEdit ? "" : "disabled"} step="any" type="number" value="${entry.saldo}" /></label>
+    <label class="field"><span>Mínimo</span>
+      <input id="card-minimo" ${canEdit ? "" : "disabled"} step="any" type="number" value="${entry.minimo}" /></label>
+    <button class="btn btn-ghost btn-block" id="card-lotes" type="button">Gerenciar lotes</button>`;
+  if (saveBtn) {
+    saveBtn.classList.toggle("hidden", !canEdit);
+    saveBtn.textContent = "Salvar";
+  }
+  if (cancelBtn) cancelBtn.textContent = canEdit ? "Cancelar" : "Fechar";
+  modal.showModal();
+  document.getElementById("card-lotes")?.addEventListener("click", () => {
+    modal.close();
+    openLotesModal(lojaId, produtoId);
+  });
+  document.getElementById("modal-form").onsubmit = (ev) => {
+    ev.preventDefault();
+    if (!canEdit) {
+      modal.close();
+      return;
+    }
+    const novoSaldo = Math.max(0, Number(document.getElementById("card-saldo")?.value) || 0);
+    const novoMin = Math.max(0, Number(document.getElementById("card-minimo")?.value) || 0);
+    const de = Number(entry.saldo) || 0;
+    entry.minimo = novoMin;
+    if (de !== novoSaldo) {
+      modal.close();
+      openSaldoMotivoModal({ lojaId, produtoId, de, para: novoSaldo }, ({ motivo, nota }) => {
+        setSaldoComMotivo(lojaId, produtoId, novoSaldo, { motivo, nota, tipo: "ajuste" });
+        scheduleSave();
+        renderEstoque();
+      });
+      return;
+    }
+    scheduleSave();
+    modal.close();
+    renderEstoque();
+  };
 }
 
 function confirmDeleteProduto(produtoId) {
@@ -3283,7 +3764,17 @@ function concluirProducaoItens(produtoIds) {
   const aplicadoAt = new Date().toISOString();
   elegiveis.forEach(({ pid, pr, q }) => {
     const centralEst = ensureEstoque("central", pid);
-    centralEst.saldo = Math.round((Number(centralEst.saldo || 0) + q) * 1000) / 1000;
+    const de = Number(centralEst.saldo || 0);
+    centralEst.saldo = Math.round((de + q) * 1000) / 1000;
+    pushMovimento({
+      lojaId: "central",
+      produtoId: pid,
+      de,
+      para: centralEst.saldo,
+      motivo: "producao",
+      nota: `Conclusão produção ciclo ${ciclo}`,
+      tipo: "producao",
+    });
     pr.producaoAplicadaEm = ciclo;
     pr.concluidoAt = aplicadoAt;
     pr.concluidoQtde = q;
@@ -3324,7 +3815,17 @@ function desfazerConclusaoProducao(produtoId) {
     return;
   }
   const centralEst = ensureEstoque("central", produtoId);
-  centralEst.saldo = Math.round((Number(centralEst.saldo || 0) - q) * 1000) / 1000;
+  const de = Number(centralEst.saldo || 0);
+  centralEst.saldo = Math.round((de - q) * 1000) / 1000;
+  pushMovimento({
+    lojaId: "central",
+    produtoId,
+    de,
+    para: centralEst.saldo,
+    motivo: "producao",
+    nota: `Desfazer conclusão produção ciclo ${ciclo}`,
+    tipo: "producao",
+  });
   pr.producaoAplicadaEm = "";
   pr.concluidoAt = "";
   pr.concluidoQtde = 0;
@@ -3442,7 +3943,7 @@ function renderProducao() {
           }
 
           return `<tr class="${rowClass}" data-pid="${p.id}">
-            <td><strong>${esc(p.nome)}</strong>${auto ? ' <span class="pill-lilas" title="Gerado pela necessidade (mín − atual)">auto</span>' : ""}</td>
+            <td class="col-sticky-produto"><strong>${esc(p.nome)}</strong>${auto ? ' <span class="pill-lilas" title="Gerado pela necessidade (mín − atual)">auto</span>' : ""}</td>
             <td>${esc(p.unidade)}</td>
             <td>
               <select class="cell-input wide" data-field="lista" ${disMeta}>
@@ -4188,6 +4689,10 @@ function openProdutoModal(id) {
     <div class="field-row">
       <label class="field"><span>Unidade</span>
         <input id="p-un" type="text" value="${escAttr(p?.unidade || "UN")}" /></label>
+      <label class="field"><span>SKU (opcional)</span>
+        <input id="p-sku" type="text" value="${escAttr(p?.sku || "")}" placeholder="Código Nexa / interno" /></label>
+    </div>
+    <div class="field-row">
       <label class="field"><span>Ativo</span>
         <select id="p-ativo">
           <option value="1" ${p?.ativo !== false ? "selected" : ""}>Sim</option>
@@ -4214,6 +4719,7 @@ function openProdutoModal(id) {
       categoria: document.getElementById("p-cat").value.trim(),
       centroCusto: document.getElementById("p-cc").value.trim() || "CENTRAL",
       unidade: document.getElementById("p-un").value.trim() || "UN",
+      sku: (document.getElementById("p-sku")?.value || "").trim(),
       ativo: document.getElementById("p-ativo").value === "1",
     };
     if (!data.nome) return;
@@ -4736,8 +5242,29 @@ function confirmarEnvioSexta() {
     if (!q) return;
     const centralEst = ensureEstoque("central", p.id);
     const destinoEst = ensureEstoque(lojaId, p.id);
-    centralEst.saldo = Math.round((Number(centralEst.saldo || 0) - q) * 1000) / 1000;
-    destinoEst.saldo = Math.round((Number(destinoEst.saldo || 0) + q) * 1000) / 1000;
+    const deCentral = Number(centralEst.saldo || 0);
+    const deDest = Number(destinoEst.saldo || 0);
+    centralEst.saldo = Math.round((deCentral - q) * 1000) / 1000;
+    destinoEst.saldo = Math.round((deDest + q) * 1000) / 1000;
+    destinoEst.envio = 0;
+    pushMovimento({
+      lojaId: "central",
+      produtoId: p.id,
+      de: deCentral,
+      para: centralEst.saldo,
+      motivo: "envio",
+      nota: `Envio → ${lojaNome(lojaId)} (${dataIso})`,
+      tipo: "envio",
+    });
+    pushMovimento({
+      lojaId,
+      produtoId: p.id,
+      de: deDest,
+      para: destinoEst.saldo,
+      motivo: "envio",
+      nota: `Recebido do Central (${dataIso})`,
+      tipo: "envio",
+    });
     itensAplicados.push({ produtoId: p.id, qtde: q });
   });
 
@@ -4755,7 +5282,7 @@ function confirmarEnvioSexta() {
   persistEnvioSigRecord({ aplicado: true, aplicadoAt });
   scheduleSave();
   renderEnvioSexta();
-  alert(`Envio aplicado: Central → ${lojaNome(lojaId)} (${itensAplicados.length} itens).`);
+  alert(`Envio aplicado: Central → ${lojaNome(lojaId)} (${itensAplicados.length} itens). Quantidades de envio zeradas.`);
 }
 
 function renderEnvioSexta() {
@@ -4769,6 +5296,7 @@ function renderEnvioSexta() {
   const aplicado = isEnvioAplicado(lojaId, dataIso);
   const meta = document.getElementById("envio-sheet-meta");
   const dateEl = document.getElementById("envio-sheet-date");
+  const badgeEl = document.getElementById("envio-aplicado-badge");
   if (meta) {
     meta.textContent = aplicado
       ? `Loja destino: ${loja} · Estoque aplicado (Central → loja)`
@@ -4778,12 +5306,22 @@ function renderEnvioSexta() {
     const wd = weekdayLabel(dataIso);
     dateEl.textContent = `${formatDateBR(dataIso)}${wd ? ` · ${wd}` : ""}`;
   }
+  if (badgeEl) {
+    if (aplicado) {
+      const rec = getEnvioAplicadoRecord(lojaId, dataIso);
+      badgeEl.classList.remove("hidden");
+      badgeEl.textContent = `Aplicado em ${formatDateTimeBR(rec?.aplicadoAt)}`;
+    } else {
+      badgeEl.classList.add("hidden");
+      badgeEl.textContent = "";
+    }
+  }
 
   const hint = document.getElementById("envio-hint");
   if (hint) {
     if (aplicado) {
       const rec = getEnvioAplicadoRecord(lojaId, dataIso);
-      hint.textContent = `Envio já aplicado em ${formatDateTimeBR(rec?.aplicadoAt)} — estoque Central já debitado e loja creditada.`;
+      hint.textContent = `Envio já aplicado em ${formatDateTimeBR(rec?.aplicadoAt)} — estoque Central debitado, loja creditada e quantidades de envio zeradas.`;
     } else if (canManageEnvio()) {
       hint.textContent =
         "Liste o envio por loja, colete as assinaturas e clique em Confirmar envio para baixar o Central e entrar na loja.";
@@ -4814,7 +5352,7 @@ function renderEnvioSexta() {
               <input class="no-print" data-check-envio type="checkbox" ${checked} />
               <span class="check-print" aria-hidden="true"></span>
             </td>
-            <td><strong>${esc(p.nome)}</strong></td>
+            <td class="col-sticky-produto"><strong>${esc(p.nome)}</strong></td>
             <td>${esc(p.categoria)}</td>
             <td>${esc(p.unidade)}</td>
             <td>${formatNum(e.saldo)}</td>
@@ -4954,8 +5492,28 @@ function enviarSolicitacaoEmergencia(solId) {
     if (!qtde) return;
     const origemEst = ensureEstoque(origemLojaId, it.produtoId);
     const destinoEst = ensureEstoque(sol.lojaId, it.produtoId);
-    origemEst.saldo = Math.round((Number(origemEst.saldo || 0) - qtde) * 1000) / 1000;
-    destinoEst.saldo = Math.round((Number(destinoEst.saldo || 0) + qtde) * 1000) / 1000;
+    const deOrig = Number(origemEst.saldo || 0);
+    const deDest = Number(destinoEst.saldo || 0);
+    origemEst.saldo = Math.round((deOrig - qtde) * 1000) / 1000;
+    destinoEst.saldo = Math.round((deDest + qtde) * 1000) / 1000;
+    pushMovimento({
+      lojaId: origemLojaId,
+      produtoId: it.produtoId,
+      de: deOrig,
+      para: origemEst.saldo,
+      motivo: "emergencia",
+      nota: `Saída emergência → ${lojaNome(sol.lojaId)}`,
+      tipo: "emergencia",
+    });
+    pushMovimento({
+      lojaId: sol.lojaId,
+      produtoId: it.produtoId,
+      de: deDest,
+      para: destinoEst.saldo,
+      motivo: "emergencia",
+      nota: `Entrada emergência de ${nomeOrigem}`,
+      tipo: "emergencia",
+    });
   });
 
   sol.origemLojaId = origemLojaId;
@@ -5736,7 +6294,15 @@ function initEvents() {
   bindEnvioEvents();
   bindEmergenciaEvents();
   bindContagemEvents();
+  bindMobileBottomNav();
+  bindFiltersCollapse();
   initTableHScrollFooter();
+  window.addEventListener("resize", () => {
+    if (can("estoque") && document.getElementById("view-estoque")?.classList.contains("active")) {
+      renderEstoque();
+    }
+    updateMobileBottomNav();
+  });
 }
 
 async function init() {
