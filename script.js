@@ -1791,6 +1791,50 @@ function precoReferencia(produtoId) {
   return precoReferenciaInfo(produtoId).preco || 0;
 }
 
+/** Produtos ativos sem preço utilizável (sem OK, sem cotação >0, sem histórico). */
+function itensSemPreco() {
+  return produtosAtivos()
+    .filter((p) => precoReferencia(p.id) <= 0)
+    .slice()
+    .sort(
+      (a, b) =>
+        String(a.categoria || "").localeCompare(String(b.categoria || ""), "pt-BR") ||
+        String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR")
+    );
+}
+
+function canBaixarItensSemPreco() {
+  return session?.role === "admin" || (session?.role === "loja" && session.lojaId === "central");
+}
+
+function downloadItensSemPrecoXls() {
+  if (!canBaixarItensSemPreco()) return;
+  const itens = itensSemPreco();
+  if (!itens.length) {
+    alert("Nenhum item ativo sem preço de referência.");
+    return;
+  }
+  const rows = itens
+    .map(
+      (p) =>
+        `<tr><td>${esc(p.categoria || "")}</td><td>${esc(p.nome || "")}</td><td>${esc(p.unidade || "")}</td><td>${esc(p.id || "")}</td></tr>`
+    )
+    .join("");
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8" /></head><body><table>
+<thead><tr><th>Categoria</th><th>Produto</th><th>Unidade</th><th>Id</th></tr></thead>
+<tbody>${rows}</tbody>
+</table></body></html>`;
+  const blob = new Blob([`\ufeff${html}`], { type: "application/vnd.ms-excel" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "itens-sem-preco.xls";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
 function snapshotPrecosAtual(label) {
   const precos = {};
   let itens = 0;
@@ -2561,6 +2605,19 @@ function renderDashboard() {
   document.querySelectorAll("#dash-kpis [data-goto]").forEach((btn) => {
     btn.addEventListener("click", () => handleDashGoto(btn.dataset.goto, btn));
   });
+
+  const semPrecoToolbar = document.getElementById("dash-sem-preco-toolbar");
+  const btnSemPreco = document.getElementById("btn-baixar-itens-sem-preco");
+  if (semPrecoToolbar && btnSemPreco) {
+    const showSemPreco = canBaixarItensSemPreco();
+    semPrecoToolbar.classList.toggle("hidden", !showSemPreco);
+    if (showSemPreco) {
+      const nSem = itensSemPreco().length;
+      btnSemPreco.textContent = nSem
+        ? `Baixar ${nSem} sem preço`
+        : "Baixar itens sem preço";
+    }
+  }
 
   const panelBaixo = document.getElementById("dash-baixo-minimo");
   if (panelBaixo) {
@@ -6897,6 +6954,10 @@ function initEvents() {
     const ok = await reimportSeedFromPlanilha();
     const n = countSaldoPositivo(state?.estoques);
     alert(ok ? `Dados da planilha aplicados (${n} itens com saldo > 0).` : "Falha ao ler o seed. Abra a pasta do projeto (precisa de seed-data.js).");
+  });
+
+  document.getElementById("btn-baixar-itens-sem-preco")?.addEventListener("click", () => {
+    downloadItensSemPrecoXls();
   });
 
   document.getElementById("btn-login-reseed")?.addEventListener("click", async () => {
